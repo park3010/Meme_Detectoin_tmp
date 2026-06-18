@@ -1,0 +1,4 @@
+include: default.yaml
+
+stage_e:
+  output_path: result/stage_e/final_predictions.jsonl

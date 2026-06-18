@@ -1,0 +1,115 @@
+single_label_fields:
+  harmfulness:
+    labels: [non_harmful, harmful, unknown]
+    ignore_labels: [unknown]
+
+  target_presence:
+    labels: [explicit, implicit, none, ambiguous, unknown]
+    ignore_labels: [unknown]
+
+  target_granularity:
+    labels: [individual, organization, community, society, none, ambiguous, unknown]
+    ignore_labels: [unknown]
+
+  intent_primary:
+    labels:
+      - ridicule_mockery
+      - denigration_insult
+      - harassment_threat
+      - persuasion_propaganda
+      - misinformation_deception
+      - mobilization_incitement
+      - solidarity_support
+      - self_expression
+      - entertainment
+      - criticism
+      - neutral
+      - other
+      - unknown
+    ignore_labels: [unknown]
+
+  stance:
+    labels: [hostile, neutral, supportive, ambiguous, unknown]
+    ignore_labels: [unknown]
+
+  tactic_multimodal_relation:
+    labels:
+      - complementary
+      - incongruent
+      - cross_modal_implication
+      - text_only
+      - image_only
+      - ambiguous
+      - none
+      - other
+      - unknown
+    ignore_labels: [unknown]
+
+binary_fields:
+  background_knowledge_needed:
+    positive: true
+  not_sure:
+    positive: true
+
+multi_label_fields:
+  protected_attribute:
+    labels:
+      - race_ethnicity
+      - nationality
+      - religion
+      - sex_gender
+      - sexual_orientation
+      - disability
+      - age
+      - political_group
+      - occupation
+      - body_appearance
+      - social_class
+      - none
+      - other
+      - unknown
+    ignore_labels: [unknown]
+
+  tactic_rhetorical:
+    labels:
+      - sarcasm_irony
+      - stereotype
+      - slur
+      - smear
+      - exaggeration
+      - fear_appeal
+      - metaphor
+      - dehumanization
+      - objectification
+      - exclusion
+      - dog_whistle
+      - conspiracy_cue
+      - whataboutism
+      - slogan
+      - image_text_incongruity
+      - juxtaposition
+      - sexual_innuendo
+      - propaganda
+      - none
+      - other
+      - unknown
+    ignore_labels: [unknown]
+
+optional_text_fields:
+  - visual_scene_summary
+  - surface_multimodal_relation
+  - target_text_span
+  - target_visual_cue
+  - intent_free_text
+  - background_knowledge_text
+  - tactic_text_span
+  - tactic_image_region_description
+  - key_text_evidence
+  - key_visual_evidence
+  - key_cross_modal_evidence
+
+sample_weight:
+  use_confidence_score: true
+  downweight_not_sure: true
+  not_sure_weight_multiplier: 0.5
+  min_weight: 0.1

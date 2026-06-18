@@ -1,0 +1,235 @@
+datasets:
+  - harm_c
+  - harm_p
+  - facebook
+  - memotion
+
+paths:
+  dataset_root: dataset/source
+  annotation_root: dataset/annotation
+  normalized_root: dataset/annotation_normalized
+  audit_root: result/annotation_audit
+
+raw_label_mapping:
+  default:
+    "1": harmful
+    "0": non_harmful
+    1: harmful
+    0: non_harmful
+    harmful: harmful
+    non_harmful: non_harmful
+    non-harmful: non_harmful
+  facebook:
+    "1": harmful
+    "0": non_harmful
+    1: harmful
+    0: non_harmful
+  harm_c:
+    "1": harmful
+    "0": non_harmful
+    1: harmful
+    0: non_harmful
+  harm_p:
+    "1": harmful
+    "0": non_harmful
+    1: harmful
+    0: non_harmful
+  memotion:
+    "1": harmful
+    "0": non_harmful
+    1: harmful
+    0: non_harmful
+
+label_maps:
+  target_presence:
+    allowed: [explicit, implicit, none, ambiguous, unknown]
+    aliases:
+      present: explicit
+      explicit_target: explicit
+      implicit_target: implicit
+      no_target: none
+      no target: none
+      absent: none
+      null: unknown
+      "": unknown
+
+  target_granularity:
+    allowed: [individual, organization, community, society, none, ambiguous, unknown]
+    aliases:
+      person: individual
+      group: community
+      protected_group: community
+      protected group: community
+      nation_region: community
+      nation/region: community
+      public: society
+      no_target: none
+      no target: none
+      null: unknown
+      "": unknown
+
+  stance:
+    allowed: [hostile, neutral, supportive, ambiguous, unknown]
+    aliases:
+      support: supportive
+      supportive_of_target: supportive
+      supportive of target: supportive
+      ridicule: hostile
+      ridiculing: hostile
+      attack: hostile
+      attacking: hostile
+      hateful: hostile
+      none: neutral
+      null: unknown
+      "": unknown
+
+  intent_primary:
+    allowed:
+      - ridicule_mockery
+      - denigration_insult
+      - harassment_threat
+      - persuasion_propaganda
+      - misinformation_deception
+      - mobilization_incitement
+      - solidarity_support
+      - self_expression
+      - entertainment
+      - criticism
+      - neutral
+      - other
+      - unknown
+    aliases:
+      ridicule: ridicule_mockery
+      mockery: ridicule_mockery
+      satire: ridicule_mockery
+      insult: denigration_insult
+      denigration: denigration_insult
+      demeaning: denigration_insult
+      threat: harassment_threat
+      harassment: harassment_threat
+      propaganda: persuasion_propaganda
+      persuasion: persuasion_propaganda
+      misinformation: misinformation_deception
+      deception: misinformation_deception
+      incitement: mobilization_incitement
+      mobilization: mobilization_incitement
+      support: solidarity_support
+      solidarity: solidarity_support
+      self-expression: self_expression
+      humor: entertainment
+      joke: entertainment
+      critique: criticism
+      none: neutral
+      null: unknown
+      "": unknown
+
+  tactic_rhetorical:
+    allowed:
+      - sarcasm_irony
+      - stereotype
+      - slur
+      - smear
+      - exaggeration
+      - fear_appeal
+      - metaphor
+      - dehumanization
+      - objectification
+      - exclusion
+      - dog_whistle
+      - conspiracy_cue
+      - whataboutism
+      - slogan
+      - image_text_incongruity
+      - juxtaposition
+      - sexual_innuendo
+      - propaganda
+      - none
+      - other
+      - unknown
+    aliases:
+      irony: sarcasm_irony
+      sarcasm: sarcasm_irony
+      ironic: sarcasm_irony
+      stereotyping: stereotype
+      slurs: slur
+      fear: fear_appeal
+      scare: fear_appeal
+      animalization: dehumanization
+      dogwhistle: dog_whistle
+      conspiracy: conspiracy_cue
+      image-text incongruity: image_text_incongruity
+      image text incongruity: image_text_incongruity
+      incongruity: image_text_incongruity
+      juxtapose: juxtaposition
+      sexual: sexual_innuendo
+      none: none
+      null: unknown
+      "": unknown
+
+  tactic_multimodal_relation:
+    allowed:
+      - complementary
+      - incongruent
+      - cross_modal_implication
+      - text_only
+      - image_only
+      - ambiguous
+      - none
+      - other
+      - unknown
+    aliases:
+      aligned: complementary
+      supportive: complementary
+      complement: complementary
+      complementary: complementary
+      complementary_relation: complementary
+      reinforcing: complementary
+
+      mismatch: incongruent
+      contradiction: incongruent
+      contradictory: incongruent
+      image_text_mismatch: incongruent
+      incongruity: incongruent
+      incongruent: incongruent
+
+      implication: cross_modal_implication
+      cross_modal: cross_modal_implication
+      cross-modal implication: cross_modal_implication
+      cross modal implication: cross_modal_implication
+      cross_modal_implication: cross_modal_implication
+
+      text_dominant: text_only
+      text-dominant: text_only
+      text dominant: text_only
+      text-only: text_only
+      text only: text_only
+      text_only: text_only
+
+      image_dominant: image_only
+      image-dominant: image_only
+      image dominant: image_only
+      image-only: image_only
+      image only: image_only
+      image_only: image_only
+
+      ambiguous: ambiguous
+      none: none
+      null: unknown
+      "": unknown
+
+  confidence:
+    allowed: [high, medium, low, unknown]
+    aliases:
+      sure: high
+      confident: high
+      mid: medium
+      moderate: medium
+      uncertain: low
+      unsure: low
+      null: unknown
+      "": unknown
+    numeric:
+      high: 1.0
+      medium: 0.66
+      low: 0.33
+      unknown: 0.0

@@ -1,0 +1,24 @@
+include: ../default.yaml
+
+experiment:
+  name: stage_wise_ablation
+  seeds: [42, 52, 123, 777, 2026]
+  ablations:
+    - full
+    - w_o_roi
+    - w_o_incongruity
+    - w_o_retrieval
+    - w_o_context_generation
+    - w_o_relevance_scorer
+    - w_o_support_verifier
+    - w_o_temporal_cultural_validator
+    - w_o_task_aware_gate
+    - w_o_structured_auxiliary
+    - label_only_no_evidence
+  fusion_modes:
+    - concat_mlp
+    - mean_pooling
+    - cross_attention
+    - shared_gate
+    - task_aware_gate
+    - task_aware_gate_verified

@@ -1,0 +1,7 @@
+include: default.yaml
+
+stage_d:
+  hidden_dim: 256
+  num_heads: 4
+  num_layers: 2
+  output_path: result/stage_d/fusion_states.pt

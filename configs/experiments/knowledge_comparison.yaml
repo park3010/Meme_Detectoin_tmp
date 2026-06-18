@@ -1,0 +1,11 @@
+include: ../default.yaml
+
+experiment:
+  name: knowledge_comparison
+  seeds: [42, 52, 123, 777, 2026]
+  modes:
+    - no_knowledge
+    - generated_only
+    - retrieved_only
+    - generated_retrieved
+    - verified

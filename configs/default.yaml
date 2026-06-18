@@ -1,0 +1,49 @@
+paths:
+  dataset_root: dataset/source
+  annotation_root: dataset/annotation
+  result_root: result
+  retrieval_corpus_paths: [dataset/source/wiki_common/cache/corpus_texts.jsonl]
+
+runtime:
+  device: cuda
+  seed: 13
+  num_workers: 4
+  max_samples: null
+  save_per_sample: false
+  log_level: INFO
+
+model:
+  hidden_dim: 256
+  internal_top_k: 6
+  knowledge_top_k: 8
+
+backbones:
+  clip:
+    prefer_pretrained: true
+    model_name: ViT-B-32
+  text:
+    prefer_transformers: true
+    model_name: microsoft/deberta-v3-base
+  detector:
+    mode: heuristic
+  retriever:
+    backend: local
+    fallback_candidates: true
+    max_documents: 5000
+    use_cross_encoder_rerank: true
+  generator:
+    backend: template
+
+stages:
+  stage_a: true
+  stage_b: true
+  stage_c: true
+  stage_d: true
+  stage_e: true
+
+stage_c:
+  min_relevance: 0.05
+  allow_low_relevance_fallback: true
+
+debug:
+  verbose_outputs: false
