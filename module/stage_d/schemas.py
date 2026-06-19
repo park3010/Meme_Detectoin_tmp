@@ -21,7 +21,7 @@ class StageDInput:
 
 @dataclass
 class StageDMetadata:
-    """Stage D metadata."""
+    """Auditable evidence-fusion and task-reasoning metadata."""
 
     internal_token_count: int
     verified_knowledge_count: int
@@ -33,6 +33,16 @@ class StageDMetadata:
     support_matrix_shape: list[int] = field(default_factory=list)
     gate_mode: str = "token_sample_task_head"
     task_support_used: bool = False
+    knowledge_origin_counts: dict[str, int] = field(default_factory=dict)
+    knowledge_provenance_records: list[dict[str, Any]] = field(default_factory=list)
+    attention_trace: dict[str, Any] = field(default_factory=dict)
+    gate_statistics: dict[str, float] = field(default_factory=dict)
+    task_support_summary: dict[str, float] = field(default_factory=dict)
+    support_matrix_columns: list[str] = field(default_factory=list)
+    stage_c_policy: dict[str, Any] = field(default_factory=dict)
+    analysis_hooks: dict[str, float] = field(default_factory=dict)
+    regularizer_hook_mode: str = "detached_analysis_only"
+    regularizer_hooks_are_differentiable: bool = False
 
 
 @dataclass
