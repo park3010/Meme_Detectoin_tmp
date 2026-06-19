@@ -72,6 +72,8 @@ def stage_outputs_to_prediction_record(
         "gold_normalized_schema_version": source_annotation.get("annotation_schema_version"),
         "supporting_evidence": structured.get("supporting_evidence", {}),
         "rationale": structured.get("rationale", ""),
+        "output_provenance": structured.get("output_provenance", {}),
+        "training_hooks": structured.get("training_hooks", {}),
         "stage_metadata": compact_stage_metadata(outputs),
     }
     if extra:

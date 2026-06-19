@@ -193,6 +193,11 @@ def run_ours_experiment(config: OursRunConfig) -> dict[str, Any]:
         log_row = {
             "epoch": epoch,
             "train_loss": sum(epoch_losses) / max(1, len(epoch_losses)),
+            "split_sizes": {
+                "train": len(materialized.get("train", [])),
+                "valid": len(validation_samples),
+                "test": len(materialized.get("test", [])),
+            },
             "loss_components": loss_components,
             "loss_provenance": loss_provenance,
             "active_logits_losses": active_logits_losses,
