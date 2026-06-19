@@ -10,7 +10,8 @@ def test_loss_provenance_mapping():
     assert loss_provenance("target_granularity") == "logits"
     assert loss_provenance("intent_primary") == "logits"
     assert loss_provenance("tactic_rhetorical") == "logits_multilabel"
-    assert loss_provenance("target_presence") == "proxy_detached_score"
+    assert loss_provenance("target_presence") == "logits_aux_with_proxy_fallback"
+    assert loss_provenance("tactic_multimodal_relation") == "logits_aux_with_proxy_fallback"
     assert loss_provenance("stance") == "proxy_rule_score"
     assert loss_provenance("consistency") == "proxy_detached_metadata"
 
@@ -39,7 +40,7 @@ def test_structured_loss_descriptions_are_logging_only():
         "differentiable_expected": True,
         "requires_grad": True,
     }
-    assert descriptions["target_presence"]["provenance"] == "proxy_detached_score"
-    assert descriptions["target_presence"]["differentiable_expected"] is False
+    assert descriptions["target_presence"]["provenance"] == "logits_aux_with_proxy_fallback"
+    assert descriptions["target_presence"]["differentiable_expected"] is True
     assert descriptions["target_presence"]["requires_grad"] is False
     assert losses["harmfulness"].requires_grad is True

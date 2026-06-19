@@ -30,9 +30,11 @@ def test_stage_e_structured_output_provenance_contract():
     assert metadata.output_contract_version == "stage_e_structured_output_v1"
     assert metadata.field_provenance["harmfulness.label"] == "logits"
     assert metadata.field_provenance["target.granularity"] == "logits"
-    assert metadata.field_provenance["target.presence"] == "heuristic_proxy"
+    assert metadata.field_provenance["target.presence"] == "logits_aux"
+    assert metadata.field_provenance["target.heuristic_presence"] == "heuristic_proxy"
     assert metadata.field_provenance["intent.primary"] == "logits"
-    assert metadata.field_provenance["tactic.multimodal_relation"] == "stage_a_cue_proxy"
+    assert metadata.field_provenance["tactic.multimodal_relation"] == "logits_aux"
+    assert metadata.field_provenance["tactic.stage_a_multimodal_relation"] == "stage_a_cue_proxy"
     assert metadata.field_provenance["rationale"] == "template"
     assert metadata.trainable_logits_fields
     assert metadata.proxy_fields
@@ -47,26 +49,34 @@ def test_stage_e_structured_output_provenance_contract():
     assert "field_provenance" in hooks
     assert "trainable_logits_fields" in hooks
     assert "proxy_fields" in hooks
-    assert "target_presence_logits" not in hooks
-    assert "tactic_multimodal_relation_logits" not in hooks
+    assert hooks["target_presence_logits"] is not None
+    assert hooks["target_presence_scores"]
+    assert hooks["tactic_multimodal_relation_logits"] is not None
+    assert hooks["tactic_multimodal_relation_scores"]
 
     intent = structured["intent"]
     assert abs(intent["background_knowledge_score"] - 0.9) < 1e-6
     assert intent["background_knowledge_provenance"] == "cue_proxy"
 
     tactic = structured["tactic"]
-    assert tactic["multimodal_relation"] == "cross_modal_implication"
     assert tactic["stage_a_multimodal_relation"] == "cross_modal_implication"
-    assert tactic["multimodal_relation_provenance"] == "stage_a_cue_proxy"
+    assert tactic["multimodal_relation"] in StructuredInterpretationHead().tactic.relation_labels
+    assert tactic["multimodal_relation_source"] == "tactic_multimodal_relation_head"
+    assert tactic["multimodal_relation_provenance"] == "logits_aux"
+    assert tactic["multimodal_relation_logits"] is not None
     assert tactic["rhetorical_primary"] == output.tactic.label
     assert tactic["rhetorical_provenance"] == "logits_multilabel_or_top1_rendered"
+    assert tactic["rhetorical_decoding"] == "top1_logits_plus_heuristic_cues"
 
     target = structured["target"]
-    assert target["presence_provenance"] == "heuristic_proxy"
+    assert target["presence_provenance"] == "logits_aux"
+    assert target["presence_source"] == "target_presence_head"
+    assert target["presence_logits"] is not None
     assert {
         "presence_source",
         "heuristic_presence",
         "heuristic_presence_score",
+        "heuristic_presence_source",
     } <= set(target)
 
     for item in output.supporting_evidence["internal"]:

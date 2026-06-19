@@ -5,11 +5,11 @@ single_label_fields:
 
   target_presence:
     labels: [explicit, implicit, none, ambiguous, unknown]
-    ignore_labels: [unknown]
+    ignore_labels: [ambiguous, unknown]
 
   target_granularity:
     labels: [individual, organization, community, society, none, ambiguous, unknown]
-    ignore_labels: [unknown]
+    ignore_labels: [ambiguous, unknown]
 
   intent_primary:
     labels:
@@ -43,7 +43,7 @@ single_label_fields:
       - none
       - other
       - unknown
-    ignore_labels: [unknown]
+    ignore_labels: [ambiguous, unknown]
 
 binary_fields:
   background_knowledge_needed:

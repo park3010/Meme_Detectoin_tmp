@@ -36,15 +36,35 @@ class StructuredInterpretationHead(nn.Module):
         ocr_text = _ocr_text(stage_a)
         harm_pred = _to_prediction_from_logits(self.harmfulness.compute_logits(stage_d.shared_reasoning_state, ocr_text), self.harmfulness.labels)
         target_pred = _to_prediction_from_logits(self.target.compute_logits(stage_d.task_latents["target"], ocr_text), self.target.labels)
+        target_presence_pred = _to_prediction_from_logits(
+            self.target.compute_presence_logits(stage_d.task_latents["target"], ocr_text),
+            self.target.presence_labels,
+        )
         intent_pred = _to_prediction_from_logits(self.intent.compute_logits(stage_d.task_latents["intent"], ocr_text), self.intent.labels)
         tactic_pred = _to_prediction_from_logits(self.tactic.compute_logits(stage_d.task_latents["tactic"], ocr_text), self.tactic.labels)
+        stage_a_relation = _stage_a_multimodal_relation(stage_a)
+        tactic_relation_pred = _to_prediction_from_logits(
+            self.tactic.compute_relation_logits(
+                stage_d.task_latents["tactic"],
+                ocr_text,
+                stage_a_relation=stage_a_relation,
+            ),
+            self.tactic.relation_labels,
+        )
         evidence = self.attribution.select(stage_a, stage_c, stage_d)
         rationale = self.rationale.generate(harm_pred, target_pred, intent_pred, tactic_pred, evidence)
         harmfulness_payload = _harmfulness_payload(harm_pred)
-        target_payload = _target_payload(target_pred, stage_a)
+        target_payload = _target_payload(target_pred, stage_a, target_presence_pred)
         intent_payload = _intent_payload(intent_pred, harm_pred, stage_a, stage_c)
-        tactic_payload = _tactic_payload(tactic_pred, stage_a)
-        label_spaces = _label_spaces(harm_pred, target_pred, intent_pred, tactic_pred)
+        tactic_payload = _tactic_payload(tactic_pred, stage_a, tactic_relation_pred)
+        label_spaces = _label_spaces(
+            harm_pred,
+            target_pred,
+            intent_pred,
+            tactic_pred,
+            target_presence_pred,
+            tactic_relation_pred,
+        )
         stage_d_trace_available = bool(getattr(stage_d.metadata, "attention_trace", None))
         regularizer_hook_mode = getattr(stage_d.metadata, "regularizer_hook_mode", "detached_analysis_only")
         output_provenance = {
@@ -72,12 +92,16 @@ class StructuredInterpretationHead(nn.Module):
             "training_hooks": {
                 "harmfulness_scores": harm_pred.scores,
                 "target_scores": target_pred.scores,
+                "target_presence_scores": target_presence_pred.scores,
                 "intent_scores": intent_pred.scores,
                 "tactic_scores": tactic_pred.scores,
+                "tactic_multimodal_relation_scores": tactic_relation_pred.scores,
                 "harmfulness_logits": harm_pred.logits,
                 "target_logits": target_pred.logits,
+                "target_presence_logits": target_presence_pred.logits,
                 "intent_logits": intent_pred.logits,
                 "tactic_logits": tactic_pred.logits,
+                "tactic_multimodal_relation_logits": tactic_relation_pred.logits,
                 "label_spaces": label_spaces,
                 "stage_d_regularizers": stage_d.metadata.regularizer_hooks,
                 "field_provenance": _field_provenance(),
@@ -140,6 +164,19 @@ def _ocr_text(stage_a: StageAOutput) -> str:
     return ""
 
 
+def _stage_a_multimodal_relation(stage_a: StageAOutput) -> str:
+    """Read the canonical Stage A relation cue with legacy alias fallback."""
+
+    aux_labels = stage_a.metadata.auxiliary_labels if hasattr(stage_a.metadata, "auxiliary_labels") else {}
+    if not isinstance(aux_labels, dict):
+        return ""
+    return str(
+        aux_labels.get("stage_a_multimodal_relation")
+        or aux_labels.get("multimodal_relation")
+        or ""
+    )
+
+
 def _harmfulness_payload(prediction: Prediction) -> dict[str, object]:
     return {
         "label": prediction.label,
@@ -150,9 +187,13 @@ def _harmfulness_payload(prediction: Prediction) -> dict[str, object]:
     }
 
 
-def _target_payload(prediction: Prediction, stage_a: StageAOutput) -> dict[str, object]:
+def _target_payload(
+    prediction: Prediction,
+    stage_a: StageAOutput,
+    presence_prediction: Prediction | None = None,
+) -> dict[str, object]:
     text = _ocr_text(stage_a)
-    presence_score = target_presence_score(text)
+    heuristic_presence_score = target_presence_score(text)
     entities = capitalized_spans(text, limit=5)
     lowered = text.lower()
     attributes = []
@@ -166,7 +207,15 @@ def _target_payload(prediction: Prediction, stage_a: StageAOutput) -> dict[str, 
     for label, terms in attribute_terms.items():
         if any(term in lowered for term in terms):
             attributes.append(label)
-    presence = "explicit" if entities or presence_score >= 0.55 else "implicit" if presence_score >= 0.25 else "none"
+    heuristic_presence = (
+        "explicit"
+        if entities or heuristic_presence_score >= 0.55
+        else "implicit"
+        if heuristic_presence_score >= 0.25
+        else "none"
+    )
+    presence = presence_prediction.label if presence_prediction is not None else heuristic_presence
+    presence_score = presence_prediction.score if presence_prediction is not None else heuristic_presence_score
     return {
         "label": prediction.label,
         "score": prediction.score,
@@ -174,10 +223,13 @@ def _target_payload(prediction: Prediction, stage_a: StageAOutput) -> dict[str, 
         "logits": prediction.logits,
         "presence": presence,
         "presence_score": presence_score,
-        "presence_source": "heuristic_target_presence_score",
-        "presence_provenance": "heuristic_proxy",
-        "heuristic_presence": presence,
-        "heuristic_presence_score": presence_score,
+        "presence_scores": presence_prediction.scores if presence_prediction is not None else {},
+        "presence_logits": presence_prediction.logits if presence_prediction is not None else None,
+        "presence_source": "target_presence_head" if presence_prediction is not None else "heuristic_target_presence_score",
+        "presence_provenance": "logits_aux" if presence_prediction is not None else "heuristic_proxy",
+        "heuristic_presence": heuristic_presence,
+        "heuristic_presence_score": heuristic_presence_score,
+        "heuristic_presence_source": "heuristic_target_presence_score",
         "granularity": prediction.label,
         "attributes": attributes or ["none"],
         "label_summary": ", ".join(entities[:3]) if entities else "",
@@ -210,17 +262,17 @@ def _intent_payload(prediction: Prediction, harmfulness: Prediction, stage_a: St
     }
 
 
-def _tactic_payload(prediction: Prediction, stage_a: StageAOutput) -> dict[str, object]:
+def _tactic_payload(
+    prediction: Prediction,
+    stage_a: StageAOutput,
+    relation_prediction: Prediction | None = None,
+) -> dict[str, object]:
     cues = rhetorical_cues(_ocr_text(stage_a))
-    aux_labels = stage_a.metadata.auxiliary_labels if hasattr(stage_a.metadata, "auxiliary_labels") else {}
-    relation = (
-        aux_labels.get("stage_a_multimodal_relation")
-        or aux_labels.get("multimodal_relation")
-        or "unknown"
-    ) if isinstance(aux_labels, dict) else "unknown"
+    stage_a_relation = _stage_a_multimodal_relation(stage_a) or "unknown"
+    relation = relation_prediction.label if relation_prediction is not None else stage_a_relation
     rhetorical_labels = sorted(set([prediction.label, *cues.keys()]))
     structural = []
-    if relation in {"incongruent", "cross_modal_implication"}:
+    if relation in {"incongruent", "cross_modal_implication"} or stage_a_relation in {"incongruent", "cross_modal_implication"}:
         structural.append("cross_modal_contrast")
     if any(item.evidence_type == "text_span" for item in stage_a.evidence_items):
         structural.append("caption_text_overlay")
@@ -232,13 +284,19 @@ def _tactic_payload(prediction: Prediction, stage_a: StageAOutput) -> dict[str, 
         "rhetorical": rhetorical_labels,
         "rhetorical_labels": rhetorical_labels,
         "rhetorical_primary": prediction.label,
+        "rhetorical_scores": prediction.scores,
+        "rhetorical_decoding": "top1_logits_plus_heuristic_cues",
         "rhetorical_prediction_source": "tactic_logits_top1_plus_heuristic_cues",
         "heuristic_rhetorical_cues": sorted(cues.keys()),
         "rhetorical_provenance": "logits_multilabel_or_top1_rendered",
         "multimodal_relation": relation,
-        "stage_a_multimodal_relation": relation,
-        "multimodal_relation_source": "stage_a_cue",
-        "multimodal_relation_provenance": "stage_a_cue_proxy",
+        "multimodal_relation_score": relation_prediction.score if relation_prediction is not None else 0.0,
+        "multimodal_relation_scores": relation_prediction.scores if relation_prediction is not None else {},
+        "multimodal_relation_logits": relation_prediction.logits if relation_prediction is not None else None,
+        "multimodal_relation_source": "tactic_multimodal_relation_head" if relation_prediction is not None else "stage_a_cue",
+        "multimodal_relation_provenance": "logits_aux" if relation_prediction is not None else "stage_a_cue_proxy",
+        "stage_a_multimodal_relation": stage_a_relation,
+        "stage_a_multimodal_relation_source": "stage_a_cue",
         "structural": structural or ["single_panel_caption"],
         "structural_tactics": structural or ["single_panel_caption"],
         "keywords": keyword_candidates(_ocr_text(stage_a), limit=8),
@@ -249,14 +307,16 @@ def _field_provenance() -> dict[str, str]:
     return {
         "harmfulness.label": "logits",
         "target.granularity": "logits",
-        "target.presence": "heuristic_proxy",
+        "target.presence": "logits_aux",
+        "target.heuristic_presence": "heuristic_proxy",
         "target.attributes": "heuristic_proxy",
         "intent.primary": "logits",
         "intent.stance": "rule_proxy",
         "intent.secondary": "score_rank_proxy",
         "intent.background_knowledge_needed": "cue_proxy",
         "tactic.rhetorical": "logits_multilabel_or_top1_rendered",
-        "tactic.multimodal_relation": "stage_a_cue_proxy",
+        "tactic.multimodal_relation": "logits_aux",
+        "tactic.stage_a_multimodal_relation": "stage_a_cue_proxy",
         "tactic.structural": "rule_proxy",
         "supporting_evidence": "gate_attention_score_proxy",
         "rationale": "template",
@@ -267,19 +327,19 @@ def _trainable_logits_fields() -> list[str]:
     return [
         "harmfulness.label",
         "target.granularity",
+        "target.presence",
         "intent.primary",
         "tactic.rhetorical",
+        "tactic.multimodal_relation",
     ]
 
 
 def _proxy_fields() -> list[str]:
     return [
-        "target.presence",
         "target.attributes",
         "intent.stance",
         "intent.secondary",
         "intent.background_knowledge_needed",
-        "tactic.multimodal_relation",
         "tactic.structural",
         "supporting_evidence",
     ]
@@ -291,9 +351,9 @@ def _template_fields() -> list[str]:
 
 def _cue_fields() -> list[str]:
     return [
-        "target.presence",
+        "target.heuristic_presence",
         "intent.background_knowledge_needed",
-        "tactic.multimodal_relation",
+        "tactic.stage_a_multimodal_relation",
     ]
 
 
@@ -302,10 +362,14 @@ def _label_spaces(
     target_pred: Prediction,
     intent_pred: Prediction,
     tactic_pred: Prediction,
+    target_presence_pred: Prediction,
+    tactic_relation_pred: Prediction,
 ) -> dict[str, list[str]]:
     return {
         "harmfulness": list(harm_pred.labels),
         "target": list(target_pred.labels),
+        "target_presence": list(target_presence_pred.labels),
         "intent": list(intent_pred.labels),
         "tactic": list(tactic_pred.labels),
+        "tactic_multimodal_relation": list(tactic_relation_pred.labels),
     }

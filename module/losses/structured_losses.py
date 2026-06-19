@@ -28,12 +28,12 @@ LOSS_PROVENANCE = {
     "target_granularity": "logits",
     "intent_primary": "logits",
     "tactic_rhetorical": "logits_multilabel",
-    "target_presence": "proxy_detached_score",
+    "target_presence": "logits_aux_with_proxy_fallback",
     "target_attributes": "proxy_set_overlap",
     "stance": "proxy_rule_score",
     "secondary_intent": "proxy_set_overlap",
     "background_knowledge_needed": "proxy_detached_score",
-    "tactic_multimodal_relation": "proxy_string_match",
+    "tactic_multimodal_relation": "logits_aux_with_proxy_fallback",
     "evidence": "proxy_selected_score",
     "evidence_text_alignment": "proxy_text_overlap",
     "consistency": "proxy_detached_metadata",
@@ -164,10 +164,22 @@ class StructuredMemeLoss(nn.Module):
 
         structured = getattr(stage_e_output, "structured_prediction", {}) or {}
         if "target_presence" in supervision:
-            losses["target_presence"] = _detached_binary_field_loss(
-                float(structured.get("target", {}).get("presence_score", 0.0)),
-                str(supervision["target_presence"]) != "none",
-            )
+            target_presence = str(supervision["target_presence"])
+            target_payload = structured.get("target", {})
+            if target_presence not in {"ambiguous", "unknown"}:
+                losses["target_presence"] = _auxiliary_classification_or_fallback(
+                    payload=target_payload,
+                    target_label=target_presence,
+                    logits_key="presence_logits",
+                    label_space=(
+                        _structured_label_space(structured, "target_presence")
+                        or list((target_payload.get("presence_scores", {}) or {}).keys())
+                    ),
+                    fallback=lambda: _detached_binary_field_loss(
+                        float(target_payload.get("heuristic_presence_score", target_payload.get("presence_score", 0.0))),
+                        target_presence != "none",
+                    ),
+                )
         if "target_attributes" in supervision:
             losses["target_attributes"] = _set_overlap_loss(
                 structured.get("target", {}).get("attributes", []),
@@ -186,10 +198,22 @@ class StructuredMemeLoss(nn.Module):
                 bool(supervision["background_knowledge_needed"]),
             )
         if "tactic_multimodal_relation" in supervision:
-            losses["tactic_multimodal_relation"] = _label_match_loss(
-                str(structured.get("tactic", {}).get("multimodal_relation", "")),
-                str(supervision["tactic_multimodal_relation"]),
-            )
+            tactic_relation = str(supervision["tactic_multimodal_relation"])
+            tactic_payload = structured.get("tactic", {})
+            if tactic_relation not in {"ambiguous", "unknown"}:
+                losses["tactic_multimodal_relation"] = _auxiliary_classification_or_fallback(
+                    payload=tactic_payload,
+                    target_label=tactic_relation,
+                    logits_key="multimodal_relation_logits",
+                    label_space=(
+                        _structured_label_space(structured, "tactic_multimodal_relation")
+                        or list((tactic_payload.get("multimodal_relation_scores", {}) or {}).keys())
+                    ),
+                    fallback=lambda: _label_match_loss(
+                        str(tactic_payload.get("multimodal_relation", "")),
+                        tactic_relation,
+                    ),
+                )
 
         gold_evidence = set(str(item) for item in supervision.get("evidence_ids", []))
         if gold_evidence:
@@ -283,8 +307,14 @@ def extract_supervision_from_annotation(sample_or_annotation: dict[str, Any]) ->
     target = annotation.get("target", {}) if isinstance(annotation.get("target"), dict) else {}
     if target:
         _copy_if_present(supervision, target, "target_presence", "target_presence")
+        if "target_presence" not in supervision:
+            _copy_if_present(supervision, target, "presence", "target_presence")
         _copy_if_present(supervision, target, "target_granularity", "target_granularity")
+        if "target_granularity" not in supervision:
+            _copy_if_present(supervision, target, "granularity", "target_granularity")
         _copy_if_present(supervision, target, "protected_attribute", "target_attributes")
+        if "target_attributes" not in supervision:
+            _copy_if_present(supervision, target, "attributes", "target_attributes")
     intent = annotation.get("intent", {}) if isinstance(annotation.get("intent"), dict) else {}
     if intent:
         _copy_if_present(supervision, intent, "intent_primary", "intent_primary")
@@ -295,6 +325,8 @@ def extract_supervision_from_annotation(sample_or_annotation: dict[str, Any]) ->
     if tactic:
         _copy_if_present(supervision, tactic, "tactic_rhetorical", "tactic_rhetorical")
         _copy_if_present(supervision, tactic, "tactic_multimodal_relation", "tactic_multimodal_relation")
+        if "tactic_multimodal_relation" not in supervision:
+            _copy_if_present(supervision, tactic, "multimodal_relation", "tactic_multimodal_relation")
     evidence = annotation.get("evidence", {}) if isinstance(annotation.get("evidence"), dict) else {}
     evidence_text = [
         evidence.get("key_text_evidence", ""),
@@ -427,6 +459,31 @@ def _label_match_loss(predicted: str, gold: str) -> torch.Tensor:
     if not gold:
         return torch.tensor(0.0)
     return torch.tensor(0.0 if predicted == gold else 1.0, dtype=torch.float32)
+
+
+def _structured_label_space(structured: dict[str, Any], field: str) -> list[str]:
+    """Read an auxiliary label space from Stage E training hooks or provenance."""
+
+    hooks = structured.get("training_hooks", {}) or {}
+    label_spaces = hooks.get("label_spaces", {}) or {}
+    if not label_spaces:
+        label_spaces = (structured.get("output_provenance", {}) or {}).get("label_spaces", {}) or {}
+    return [str(label) for label in label_spaces.get(field, [])]
+
+
+def _auxiliary_classification_or_fallback(
+    payload: dict[str, Any],
+    target_label: str,
+    logits_key: str,
+    label_space: list[str],
+    fallback: Any,
+) -> torch.Tensor:
+    """Prefer live auxiliary logits, falling back to the legacy proxy loss."""
+
+    logits = payload.get(logits_key)
+    if isinstance(logits, torch.Tensor) and target_label in label_space and logits.numel() == len(label_space):
+        return classification_loss_from_logits(logits, label_space.index(target_label))
+    return fallback()
 
 
 def _stance_scores(intent_payload: dict[str, Any]) -> dict[str, float]:

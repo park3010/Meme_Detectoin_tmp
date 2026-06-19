@@ -31,10 +31,20 @@ class TacticHead(nn.Module):
         "none",
         "other",
     ]
+    relation_labels = [
+        "complementary",
+        "incongruent",
+        "cross_modal_implication",
+        "text_only",
+        "image_only",
+        "none",
+        "other",
+    ]
 
     def __init__(self, hidden_dim: int = 256) -> None:
         super().__init__()
         self.classifier = nn.Linear(hidden_dim, len(self.labels))
+        self.relation_classifier = nn.Linear(hidden_dim, len(self.relation_labels))
 
     def compute_logits(self, tactic_latent: torch.Tensor, text: str = "") -> torch.Tensor:
         """Return trainable tactic logits with fallback rhetorical priors."""
@@ -69,6 +79,36 @@ class TacticHead(nn.Module):
             _add_prior(logits, self.labels, "sexual_innuendo", 0.25)
         if any(term in lowered for term in ["vote", "agenda", "patriot", "enemy"]):
             _add_prior(logits, self.labels, "propaganda", 0.25)
+        return logits
+
+    def compute_relation_logits(
+        self,
+        tactic_latent: torch.Tensor,
+        text: str = "",
+        stage_a_relation: str = "",
+    ) -> torch.Tensor:
+        """Return trainable multimodal-relation logits with weak cue priors."""
+
+        logits = self.relation_classifier(tactic_latent.float())
+        relation = str(stage_a_relation).strip().lower().replace("-", "_").replace(" ", "_")
+        if relation in self.relation_labels:
+            _add_prior(logits, self.relation_labels, relation, 0.25)
+        elif relation in {"mismatch", "image_text_incongruity", "contradictory"}:
+            _add_prior(logits, self.relation_labels, "incongruent", 0.2)
+        elif relation in {"cross_modal", "cross_modal_inference", "implicit_cross_modal"}:
+            _add_prior(logits, self.relation_labels, "cross_modal_implication", 0.2)
+
+        lowered = text.lower().strip()
+        token_count = len(lowered.split())
+        if not lowered:
+            _add_prior(logits, self.relation_labels, "image_only", 0.15)
+            _add_prior(logits, self.relation_labels, "none", 0.1)
+        elif token_count >= 12:
+            _add_prior(logits, self.relation_labels, "text_only", 0.12)
+        if any(term in lowered for term in ["yeah right", "doesn't match", "but the image", "contradicts"]):
+            _add_prior(logits, self.relation_labels, "incongruent", 0.15)
+        if any(term in lowered for term in ["implies", "suggests", "context", "symbolizes"]):
+            _add_prior(logits, self.relation_labels, "cross_modal_implication", 0.12)
         return logits
 
     def forward(self, tactic_latent: torch.Tensor, text: str = "") -> dict[str, float]:

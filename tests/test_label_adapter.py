@@ -45,6 +45,14 @@ def test_unknown_labels_have_ignore_masks_and_weights(tmp_path):
     assert encoded["sample_weight"] == 0.33
 
 
+def test_ambiguous_auxiliary_labels_have_ignore_masks():
+    adapter = NormalizedLabelAdapter()
+
+    assert adapter.vocab.mask_for_single("target_presence", "ambiguous") == 0
+    assert adapter.vocab.mask_for_single("target_granularity", "ambiguous") == 0
+    assert adapter.vocab.mask_for_single("tactic_multimodal_relation", "ambiguous") == 0
+
+
 def test_normalized_meme_dataset_attaches_targets_and_metadata(tmp_path):
     source, annotation_root, normalized_root = _write_mini_normalized_dataset(tmp_path)
     dataset = NormalizedMemeDataset(
