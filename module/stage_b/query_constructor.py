@@ -21,7 +21,12 @@ class QueryConstructor:
         entities = capitalized_spans(ocr_text, limit=4)
         chunks = sentence_chunks(clean, limit=3)
         cues = rhetorical_cues(clean)
-        relation = stage_a.metadata.auxiliary_labels.get("multimodal_relation", "") if hasattr(stage_a.metadata, "auxiliary_labels") else ""
+        aux_labels = stage_a.metadata.auxiliary_labels if hasattr(stage_a.metadata, "auxiliary_labels") else {}
+        relation = (
+            aux_labels.get("stage_a_multimodal_relation")
+            or aux_labels.get("multimodal_relation")
+            or ""
+        ) if isinstance(aux_labels, dict) else ""
         target_like = [item.text for item in stage_a.evidence_items if item.evidence_type in {"text_span", "local_symbol"} and item.text]
         joined_keywords = " ".join(keywords[:6])
         return QueryBundle(

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -53,17 +55,20 @@ class ExternalKnowledgeAcquisition(nn.Module):
 
         ocr_text = ocr_text_full or _extract_ocr_text(stage_a)
         bundle = self.query_constructor.build(ocr_text, stage_a)
-        evidence_surfaces, surface_stats = collect_linkable_surface_forms(stage_a, ocr_text)
+        surface_records, surface_stats = collect_linkable_surface_records(stage_a, ocr_text)
+        evidence_surfaces = _unique_surfaces([record["surface"] for record in surface_records])
         combined_link_text = " ".join([ocr_text, *evidence_surfaces])
         linked_entities = self.linker.link(combined_link_text, surface_forms=evidence_surfaces)
         _augment_queries_with_aliases(bundle, linked_entities)
         _augment_queries_with_evidence(bundle, stage_a, evidence_surfaces, linked_entities)
+        query_records = _query_records(bundle, surface_records, linked_entities)
         retrieved = self.retriever.retrieve(bundle)
         hypotheses, generated = self.generator.generate(ocr_text, retrieved, sample_id=stage_a.sample_id)
 
         candidates = _dedupe_candidates([*retrieved, *generated])[: self.top_k]
         token_rows = []
         for idx, candidate in enumerate(candidates):
+            _with_candidate_provenance(candidate)
             candidate.token_index = idx
             embedding, _, _ = self.text_encoder.encode(candidate.text)
             token_context = self._candidate_context_embedding(candidate)
@@ -95,6 +100,8 @@ class ExternalKnowledgeAcquisition(nn.Module):
             visual_evidence_used=surface_stats["visual_evidence_used"] > 0,
             fallback_candidates_used=any(candidate.source == "fallback" for candidate in candidates),
             query_source_breakdown=_query_source_breakdown(bundle),
+            surface_records=surface_records,
+            query_records=query_records,
         )
         return StageBOutput(
             sample_id=stage_a.sample_id,
@@ -161,36 +168,107 @@ def _augment_queries_with_aliases(bundle: QueryBundle, linked_entities: list[Lin
 def collect_linkable_surface_forms(stage_a: StageAOutput, ocr_text: str = "") -> tuple[list[str], dict[str, int]]:
     """Collect evidence-aware surfaces for linking and query augmentation."""
 
-    surfaces: list[str] = []
-    stats = {"ocr": 0, "text_span": 0, "local_symbol": 0, "metadata_keyword": 0, "roi_label": 0, "auxiliary_label": 0, "visual_evidence_used": 0}
+    records, stats = collect_linkable_surface_records(stage_a, ocr_text)
+    return _unique_surfaces([record["surface"] for record in records]), stats
+
+
+def collect_linkable_surface_records(stage_a: StageAOutput, ocr_text: str = "") -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Collect auditable linking surfaces with Stage A evidence provenance."""
+
+    records: list[dict[str, Any]] = []
+    stats = {
+        "ocr": 0,
+        "text_span": 0,
+        "local_symbol": 0,
+        "cross_modal_incongruity": 0,
+        "metadata_keyword": 0,
+        "roi_label": 0,
+        "auxiliary_label": 0,
+        "rhetorical_cue": 0,
+        "visual_evidence_used": 0,
+    }
     if ocr_text.strip():
-        surfaces.append(ocr_text)
+        records.append(_surface_record(ocr_text, "ocr", source_stage="input", is_heuristic=False))
         stats["ocr"] += 1
     for item in stage_a.evidence_items:
         if item.evidence_type in {"text_span", "local_symbol", "cross_modal_incongruity"} and item.text:
-            surfaces.append(item.text)
-            stats[item.evidence_type if item.evidence_type in stats else "auxiliary_label"] = stats.get(item.evidence_type, 0) + 1
+            records.append(
+                _surface_record(
+                    item.text,
+                    item.evidence_type,
+                    source_stage=str(item.metadata.get("source_stage", "stage_a")),
+                    evidence_id=item.evidence_id,
+                    evidence_type=item.evidence_type,
+                    modality=item.metadata.get("modality"),
+                    grounding_type=item.metadata.get("grounding_type"),
+                    is_heuristic=bool(item.metadata.get("is_heuristic", item.evidence_type != "text_span")),
+                )
+            )
+            stats[item.evidence_type] += 1
+            if item.evidence_type == "cross_modal_incongruity":
+                stats["auxiliary_label"] += 1
         if item.evidence_type in {"local_symbol", "visual_patch"}:
             stats["visual_evidence_used"] += 1
         metadata = item.metadata or {}
         for keyword in metadata.get("top_keywords", []) or metadata.get("keywords", []) or []:
-            surfaces.append(str(keyword))
+            records.append(
+                _surface_record(
+                    str(keyword),
+                    "metadata_keyword",
+                    source_stage=str(metadata.get("source_stage", "stage_a")),
+                    evidence_id=item.evidence_id,
+                    evidence_type=item.evidence_type,
+                    modality=metadata.get("modality"),
+                    grounding_type=metadata.get("grounding_type"),
+                    is_heuristic=bool(metadata.get("is_heuristic", False)),
+                )
+            )
             stats["metadata_keyword"] += 1
         label = metadata.get("label")
         if label:
-            surfaces.append(str(label))
+            records.append(
+                _surface_record(
+                    str(label),
+                    "roi_label",
+                    source_stage=str(metadata.get("source_stage", "stage_a")),
+                    evidence_id=item.evidence_id,
+                    evidence_type=item.evidence_type,
+                    modality=metadata.get("modality"),
+                    grounding_type=metadata.get("grounding_type"),
+                    is_heuristic=bool(metadata.get("is_heuristic", True)),
+                )
+            )
             stats["roi_label"] += 1
     aux_labels = stage_a.metadata.auxiliary_labels if hasattr(stage_a.metadata, "auxiliary_labels") else {}
-    relation = aux_labels.get("multimodal_relation") if isinstance(aux_labels, dict) else None
+    relation = _stage_a_relation(stage_a)
     if relation:
-        surfaces.append(f"multimodal relation {relation}")
+        records.append(
+            _surface_record(
+                f"multimodal relation {relation}",
+                "auxiliary_label",
+                source_stage="stage_a",
+                modality="cross_modal",
+                grounding_type="cue",
+                is_heuristic=True,
+            )
+        )
         stats["auxiliary_label"] += 1
     cues = aux_labels.get("rhetorical_cues", {}) if isinstance(aux_labels, dict) else {}
     if isinstance(cues, dict):
         for cue in cues:
-            surfaces.append(f"rhetorical cue {cue}")
+            records.append(
+                _surface_record(
+                    f"rhetorical cue {cue}",
+                    "rhetorical_cue",
+                    source_stage="stage_a",
+                    modality="text",
+                    grounding_type="cue",
+                    is_heuristic=True,
+                )
+            )
+            stats["rhetorical_cue"] += 1
             stats["auxiliary_label"] += 1
-    return _unique_surfaces(surfaces), stats
+    return _unique_surface_records(records), stats
 
 
 def _augment_queries_with_evidence(
@@ -205,7 +283,7 @@ def _augment_queries_with_evidence(
         if entity.link_type in {"visual_symbol", "evidence_surface"} and any(token in entity.surface.lower() for token in ["region", "roi", "patch", "symbol"])
     ]
     local_symbols = [item.text for item in stage_a.evidence_items if item.evidence_type == "local_symbol" and item.text]
-    relation = stage_a.metadata.auxiliary_labels.get("multimodal_relation", "") if hasattr(stage_a.metadata, "auxiliary_labels") else ""
+    relation = _stage_a_relation(stage_a)
     cues = stage_a.metadata.auxiliary_labels.get("rhetorical_cues", {}) if hasattr(stage_a.metadata, "auxiliary_labels") else {}
     cue_terms = list(cues.keys()) if isinstance(cues, dict) else []
     for symbol in [*visual_terms, *local_symbols][:4]:
@@ -269,3 +347,124 @@ def _query_source_breakdown(bundle: QueryBundle) -> dict[str, int]:
         "social_context": len(bundle.social_context_queries),
         "target_hypothesis": len(bundle.target_hypothesis_queries),
     }
+
+
+def _candidate_origin(candidate: KnowledgeCandidate) -> str:
+    if candidate.candidate_type == "generated_hypothesis" or candidate.source == "template_generator":
+        return "generated_hypothesis"
+    if candidate.source == "fallback" or bool(candidate.metadata.get("fallback")):
+        return "fallback"
+    return "retrieved"
+
+
+def _with_candidate_provenance(candidate: KnowledgeCandidate) -> KnowledgeCandidate:
+    """Attach stable candidate-state provenance without changing ranking."""
+
+    origin = _candidate_origin(candidate)
+    candidate.metadata.update(
+        {
+            "source_stage": "stage_b",
+            "candidate_origin": origin,
+            "requires_verification": True,
+            "is_retrieved": origin == "retrieved",
+            "is_fallback": origin == "fallback",
+            "is_generated": origin == "generated_hypothesis",
+            "is_external_knowledge": origin == "retrieved",
+        }
+    )
+    if origin == "generated_hypothesis":
+        candidate.metadata["is_interpretive_hypothesis"] = True
+    return candidate
+
+
+def _surface_record(
+    surface: str,
+    surface_type: str,
+    *,
+    source_stage: str,
+    evidence_id: str | None = None,
+    evidence_type: str | None = None,
+    modality: Any = None,
+    grounding_type: Any = None,
+    is_heuristic: bool,
+) -> dict[str, Any]:
+    return {
+        "surface": " ".join(str(surface).split()),
+        "surface_type": surface_type,
+        "source_stage": source_stage,
+        "evidence_id": evidence_id,
+        "evidence_type": evidence_type,
+        "modality": modality,
+        "grounding_type": grounding_type,
+        "is_heuristic": bool(is_heuristic),
+    }
+
+
+def _unique_surface_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[tuple[str, str, str | None]] = set()
+    output: list[dict[str, Any]] = []
+    for record in records:
+        surface = str(record.get("surface", "")).strip()
+        key = (surface.lower(), str(record.get("surface_type", "")), record.get("evidence_id"))
+        if not surface or key in seen:
+            continue
+        seen.add(key)
+        output.append(record)
+    return output
+
+
+def _query_records(
+    bundle: QueryBundle,
+    surface_records: list[dict[str, Any]],
+    linked_entities: list[LinkedEntity],
+) -> list[dict[str, Any]]:
+    typed_queries = [
+        ("ocr", [bundle.ocr_query]),
+        ("entity", bundle.entity_queries),
+        ("event", bundle.event_queries),
+        ("meme_template", bundle.meme_template_queries),
+        ("social_context", bundle.social_context_queries),
+        ("target_hypothesis", bundle.target_hypothesis_queries),
+    ]
+    evidence_ids = sorted({str(record["evidence_id"]) for record in surface_records if record.get("evidence_id")})
+    evidence_types = sorted({str(record["evidence_type"]) for record in surface_records if record.get("evidence_type")})
+    cue_types = sorted(
+        {
+            str(record["surface_type"])
+            for record in surface_records
+            if record.get("surface_type") in {"auxiliary_label", "rhetorical_cue", "cross_modal_incongruity"}
+        }
+    )
+    seen: set[str] = set()
+    records: list[dict[str, Any]] = []
+    for query_type, queries in typed_queries:
+        for query in queries:
+            clean = " ".join(str(query).split())
+            if not clean or clean in seen:
+                continue
+            seen.add(clean)
+            records.append(
+                {
+                    "query_id": f"q{len(records)}",
+                    "query_type": query_type,
+                    "query": clean,
+                    "source_stage": "stage_b",
+                    "surface_count": len(surface_records),
+                    "linked_entity_count": len(linked_entities),
+                    "stage_a_evidence_ids": evidence_ids,
+                    "stage_a_evidence_types": evidence_types,
+                    "cue_types": cue_types,
+                }
+            )
+    return records
+
+
+def _stage_a_relation(stage_a: StageAOutput) -> str:
+    aux_labels = stage_a.metadata.auxiliary_labels if hasattr(stage_a.metadata, "auxiliary_labels") else {}
+    if not isinstance(aux_labels, dict):
+        return ""
+    return str(
+        aux_labels.get("stage_a_multimodal_relation")
+        or aux_labels.get("multimodal_relation")
+        or ""
+    )

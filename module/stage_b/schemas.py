@@ -80,7 +80,7 @@ class StageBInput:
 
 @dataclass
 class StageBMetadata:
-    """Stage B metadata."""
+    """Candidate-state metadata produced before Stage C verification."""
 
     query_count: int
     linked_entity_count: int
@@ -93,6 +93,8 @@ class StageBMetadata:
     visual_evidence_used: bool = False
     fallback_candidates_used: bool = False
     query_source_breakdown: dict[str, int] = field(default_factory=dict)
+    surface_records: list[dict[str, Any]] = field(default_factory=list)
+    query_records: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
