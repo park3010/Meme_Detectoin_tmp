@@ -44,6 +44,21 @@ class StructuredInterpretationHead(nn.Module):
         target_payload = _target_payload(target_pred, stage_a)
         intent_payload = _intent_payload(intent_pred, harm_pred, stage_a, stage_c)
         tactic_payload = _tactic_payload(tactic_pred, stage_a)
+        label_spaces = _label_spaces(harm_pred, target_pred, intent_pred, tactic_pred)
+        stage_d_trace_available = bool(getattr(stage_d.metadata, "attention_trace", None))
+        regularizer_hook_mode = getattr(stage_d.metadata, "regularizer_hook_mode", "detached_analysis_only")
+        output_provenance = {
+            "field_provenance": _field_provenance(),
+            "trainable_logits_fields": _trainable_logits_fields(),
+            "proxy_fields": _proxy_fields(),
+            "template_fields": _template_fields(),
+            "cue_fields": _cue_fields(),
+            "label_spaces": label_spaces,
+            "evidence_attribution_backend": "gate_attention_score_proxy",
+            "rationale_backend": "template",
+            "stage_d_trace_available": stage_d_trace_available,
+            "stage_d_regularizer_hook_mode": regularizer_hook_mode,
+        }
         structured = {
             "sample_id": stage_a.sample_id,
             "dataset_name": stage_a.dataset_name,
@@ -53,6 +68,7 @@ class StructuredInterpretationHead(nn.Module):
             "tactic": tactic_payload,
             "supporting_evidence": evidence,
             "rationale": rationale,
+            "output_provenance": output_provenance,
             "training_hooks": {
                 "harmfulness_scores": harm_pred.scores,
                 "target_scores": target_pred.scores,
@@ -62,13 +78,13 @@ class StructuredInterpretationHead(nn.Module):
                 "target_logits": target_pred.logits,
                 "intent_logits": intent_pred.logits,
                 "tactic_logits": tactic_pred.logits,
-                "label_spaces": {
-                    "harmfulness": harm_pred.labels,
-                    "target": target_pred.labels,
-                    "intent": intent_pred.labels,
-                    "tactic": tactic_pred.labels,
-                },
+                "label_spaces": label_spaces,
                 "stage_d_regularizers": stage_d.metadata.regularizer_hooks,
+                "field_provenance": _field_provenance(),
+                "trainable_logits_fields": _trainable_logits_fields(),
+                "proxy_fields": _proxy_fields(),
+                "stage_d_trace_available": stage_d_trace_available,
+                "stage_d_regularizer_hook_mode": regularizer_hook_mode,
             },
         }
         return StageEOutput(
@@ -84,6 +100,17 @@ class StructuredInterpretationHead(nn.Module):
             metadata=StageEMetadata(
                 internal_evidence_count=len(stage_a.evidence_items),
                 external_evidence_count=len(stage_c.verified_items),
+                prediction_fields=list(_field_provenance()),
+                field_provenance=_field_provenance(),
+                label_spaces=label_spaces,
+                trainable_logits_fields=_trainable_logits_fields(),
+                proxy_fields=_proxy_fields(),
+                template_fields=_template_fields(),
+                cue_fields=_cue_fields(),
+                stage_d_trace_available=stage_d_trace_available,
+                evidence_attribution_backend="gate_attention_score_proxy",
+                rationale_backend="template",
+                output_contract_version="stage_e_structured_output_v1",
             ),
         )
 
@@ -147,6 +174,10 @@ def _target_payload(prediction: Prediction, stage_a: StageAOutput) -> dict[str, 
         "logits": prediction.logits,
         "presence": presence,
         "presence_score": presence_score,
+        "presence_source": "heuristic_target_presence_score",
+        "presence_provenance": "heuristic_proxy",
+        "heuristic_presence": presence,
+        "heuristic_presence_score": presence_score,
         "granularity": prediction.label,
         "attributes": attributes or ["none"],
         "label_summary": ", ".join(entities[:3]) if entities else "",
@@ -157,7 +188,12 @@ def _intent_payload(prediction: Prediction, harmfulness: Prediction, stage_a: St
     scores = sorted(prediction.scores.items(), key=lambda item: item[1], reverse=True)
     secondary = [label for label, _ in scores[1:3]]
     stance = "hostile" if harmfulness.label == "harmful" or prediction.label in {"ridicule_mockery", "denigration_insult", "harassment_threat"} else "supportive" if prediction.label == "solidarity_support" else "neutral"
-    knowledge_need = float(stage_a.auxiliary_scores.get("knowledge_need", 0.0))
+    knowledge_need = float(
+        stage_a.auxiliary_scores.get(
+            "knowledge_need_score",
+            stage_a.auxiliary_scores.get("knowledge_need", 0.0),
+        )
+    )
     external_nonfallback = any(item.source != "fallback" for item in stage_c.verified_items)
     return {
         "label": prediction.label,
@@ -169,12 +205,19 @@ def _intent_payload(prediction: Prediction, harmfulness: Prediction, stage_a: St
         "secondary": secondary,
         "background_knowledge_needed": knowledge_need >= 0.45 or external_nonfallback,
         "background_knowledge_score": knowledge_need,
+        "background_knowledge_source": "stage_a_knowledge_need_score_or_stage_c_external_presence",
+        "background_knowledge_provenance": "cue_proxy",
     }
 
 
 def _tactic_payload(prediction: Prediction, stage_a: StageAOutput) -> dict[str, object]:
     cues = rhetorical_cues(_ocr_text(stage_a))
-    relation = stage_a.metadata.auxiliary_labels.get("multimodal_relation", "unknown") if hasattr(stage_a.metadata, "auxiliary_labels") else "unknown"
+    aux_labels = stage_a.metadata.auxiliary_labels if hasattr(stage_a.metadata, "auxiliary_labels") else {}
+    relation = (
+        aux_labels.get("stage_a_multimodal_relation")
+        or aux_labels.get("multimodal_relation")
+        or "unknown"
+    ) if isinstance(aux_labels, dict) else "unknown"
     rhetorical_labels = sorted(set([prediction.label, *cues.keys()]))
     structural = []
     if relation in {"incongruent", "cross_modal_implication"}:
@@ -188,8 +231,81 @@ def _tactic_payload(prediction: Prediction, stage_a: StageAOutput) -> dict[str, 
         "logits": prediction.logits,
         "rhetorical": rhetorical_labels,
         "rhetorical_labels": rhetorical_labels,
+        "rhetorical_primary": prediction.label,
+        "rhetorical_prediction_source": "tactic_logits_top1_plus_heuristic_cues",
+        "heuristic_rhetorical_cues": sorted(cues.keys()),
+        "rhetorical_provenance": "logits_multilabel_or_top1_rendered",
         "multimodal_relation": relation,
+        "stage_a_multimodal_relation": relation,
+        "multimodal_relation_source": "stage_a_cue",
+        "multimodal_relation_provenance": "stage_a_cue_proxy",
         "structural": structural or ["single_panel_caption"],
         "structural_tactics": structural or ["single_panel_caption"],
         "keywords": keyword_candidates(_ocr_text(stage_a), limit=8),
+    }
+
+
+def _field_provenance() -> dict[str, str]:
+    return {
+        "harmfulness.label": "logits",
+        "target.granularity": "logits",
+        "target.presence": "heuristic_proxy",
+        "target.attributes": "heuristic_proxy",
+        "intent.primary": "logits",
+        "intent.stance": "rule_proxy",
+        "intent.secondary": "score_rank_proxy",
+        "intent.background_knowledge_needed": "cue_proxy",
+        "tactic.rhetorical": "logits_multilabel_or_top1_rendered",
+        "tactic.multimodal_relation": "stage_a_cue_proxy",
+        "tactic.structural": "rule_proxy",
+        "supporting_evidence": "gate_attention_score_proxy",
+        "rationale": "template",
+    }
+
+
+def _trainable_logits_fields() -> list[str]:
+    return [
+        "harmfulness.label",
+        "target.granularity",
+        "intent.primary",
+        "tactic.rhetorical",
+    ]
+
+
+def _proxy_fields() -> list[str]:
+    return [
+        "target.presence",
+        "target.attributes",
+        "intent.stance",
+        "intent.secondary",
+        "intent.background_knowledge_needed",
+        "tactic.multimodal_relation",
+        "tactic.structural",
+        "supporting_evidence",
+    ]
+
+
+def _template_fields() -> list[str]:
+    return ["rationale"]
+
+
+def _cue_fields() -> list[str]:
+    return [
+        "target.presence",
+        "intent.background_knowledge_needed",
+        "tactic.multimodal_relation",
+    ]
+
+
+def _label_spaces(
+    harm_pred: Prediction,
+    target_pred: Prediction,
+    intent_pred: Prediction,
+    tactic_pred: Prediction,
+) -> dict[str, list[str]]:
+    return {
+        "harmfulness": list(harm_pred.labels),
+        "target": list(target_pred.labels),
+        "intent": list(intent_pred.labels),
+        "tactic": list(tactic_pred.labels),
     }

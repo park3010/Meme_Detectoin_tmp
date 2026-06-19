@@ -22,11 +22,21 @@ class Prediction:
 
 @dataclass
 class StageEMetadata:
-    """Stage E metadata."""
+    """Auditable structured-output provenance metadata."""
 
     internal_evidence_count: int
     external_evidence_count: int
     rationale_backend: str = "template"
+    prediction_fields: list[str] = field(default_factory=list)
+    field_provenance: dict[str, str] = field(default_factory=dict)
+    label_spaces: dict[str, list[str]] = field(default_factory=dict)
+    trainable_logits_fields: list[str] = field(default_factory=list)
+    proxy_fields: list[str] = field(default_factory=list)
+    template_fields: list[str] = field(default_factory=list)
+    cue_fields: list[str] = field(default_factory=list)
+    stage_d_trace_available: bool = False
+    evidence_attribution_backend: str = "gate_attention_score_proxy"
+    output_contract_version: str = "stage_e_structured_output_v1"
 
 
 @dataclass

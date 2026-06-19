@@ -45,6 +45,11 @@ class EvidenceAttributionLayer:
                 "type": item.evidence_type,
                 "text": item.text,
                 "score": float(score),
+                "modality": item.metadata.get("modality"),
+                "grounding_type": item.metadata.get("grounding_type"),
+                "is_heuristic": item.metadata.get("is_heuristic"),
+                "source_stage": item.metadata.get("source_stage", "stage_a"),
+                "attribution_backend": "gate_attention_score_proxy",
                 "metadata": item.metadata,
             }
             for score, item in internal_ranked[:top_k]
@@ -66,6 +71,13 @@ class EvidenceAttributionLayer:
                 "final_score": item.final_score,
                 "attention_score": float(attention_score),
                 "support_label": item.support_label,
+                "candidate_origin": item.metadata.get("candidate_origin"),
+                "is_external_knowledge": item.metadata.get("is_external_knowledge"),
+                "is_generated": item.metadata.get("is_generated"),
+                "is_fallback": item.metadata.get("is_fallback"),
+                "is_retrieved": item.metadata.get("is_retrieved"),
+                "verification_status": item.metadata.get("verification_status"),
+                "attribution_backend": "final_score_attention_support_proxy",
                 "metadata": item.metadata,
             }
             for score, attention_score, item in external_ranked[:top_k]
