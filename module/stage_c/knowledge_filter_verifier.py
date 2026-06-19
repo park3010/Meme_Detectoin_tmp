@@ -15,6 +15,17 @@ from module.stage_c.validator import CredibilityTemporalValidator
 
 
 SUPPORT_MATRIX_COLUMNS = ["relevance", "target_support", "intent_support", "tactic_support", "validity", "final"]
+FINAL_SCORE_WEIGHTS = {
+    "relevance": 0.46,
+    "support": 0.24,
+    "validity": 0.20,
+    "retrieval_prior": 0.10,
+}
+SUPPORT_LABEL_BONUS = {
+    "support": 0.10,
+    "insufficient": 0.02,
+    "contradict": -0.04,
+}
 
 
 class KnowledgeRelevanceFilterVerifier(nn.Module):
@@ -51,6 +62,7 @@ class KnowledgeRelevanceFilterVerifier(nn.Module):
         provisional: list[VerifiedKnowledgeItem] = []
         token_by_id: dict[str, torch.Tensor] = {}
         support_rows_by_id: dict[str, list[float]] = {}
+        rejection_records: list[dict[str, object]] = []
 
         for candidate in stage_b.knowledge_candidates:
             candidate_vector = _candidate_vector(stage_b, candidate, self.hidden_dim)
@@ -63,6 +75,7 @@ class KnowledgeRelevanceFilterVerifier(nn.Module):
             )
             is_low_relevance_fallback = candidate.source == "fallback" and self.allow_low_relevance_fallback
             if relevance_score < self.min_relevance and not is_low_relevance_fallback:
+                rejection_records.append(_low_relevance_rejection(candidate, relevance_score, self))
                 continue
             claim_support = self.verifier.verify_claims(claims, candidate.text)
             support_scores = [float(claim_support[name]["score"]) for name in ["target", "intent", "tactic"]]
@@ -70,12 +83,12 @@ class KnowledgeRelevanceFilterVerifier(nn.Module):
             support_label = _aggregate_support_label(support_labels)
             support_score = sum(support_scores) / max(1, len(support_scores))
             validity_score, validity_components = self.validator.validate(candidate, internal_summary)
-            label_bonus = {"support": 0.1, "insufficient": 0.02, "contradict": -0.04}.get(support_label, 0.0)
+            label_bonus = SUPPORT_LABEL_BONUS.get(support_label, 0.0)
             final_components = {
-                "relevance": 0.46 * relevance_score,
-                "support": 0.24 * support_score,
-                "validity": 0.2 * validity_score,
-                "retrieval_prior": 0.1 * candidate.score,
+                "relevance": FINAL_SCORE_WEIGHTS["relevance"] * relevance_score,
+                "support": FINAL_SCORE_WEIGHTS["support"] * support_score,
+                "validity": FINAL_SCORE_WEIGHTS["validity"] * validity_score,
+                "retrieval_prior": FINAL_SCORE_WEIGHTS["retrieval_prior"] * candidate.score,
                 "label_bonus": label_bonus,
             }
             final_score = max(0.0, min(1.0, sum(final_components.values())))
@@ -99,7 +112,29 @@ class KnowledgeRelevanceFilterVerifier(nn.Module):
                         "relevance": relevance_components,
                         "validity_components": validity_components,
                         "final_score_components": final_components,
+                        "raw_score_components": {
+                            "relevance": float(relevance_score),
+                            "support": float(support_score),
+                            "validity": float(validity_score),
+                            "retrieval_prior": float(candidate.score),
+                        },
                         "pair_feature_shape": list(pair_feature.shape),
+                        "candidate_origin": _candidate_origin(candidate),
+                        "is_external_knowledge": bool(candidate.metadata.get("is_external_knowledge", False)),
+                        "is_generated": bool(candidate.metadata.get("is_generated", candidate.candidate_type == "generated_hypothesis")),
+                        "is_fallback": bool(candidate.metadata.get("is_fallback", candidate.source == "fallback")),
+                        "is_retrieved": bool(
+                            candidate.metadata.get(
+                                "is_retrieved",
+                                candidate.candidate_type == "retrieved" and candidate.source != "fallback",
+                            )
+                        ),
+                        "requires_verification": bool(candidate.metadata.get("requires_verification", True)),
+                        "verification_status": "accepted",
+                        "score_policy": {
+                            "weights": dict(FINAL_SCORE_WEIGHTS),
+                            "label_bonus": dict(SUPPORT_LABEL_BONUS),
+                        },
                     },
                 )
             )
@@ -137,6 +172,20 @@ class KnowledgeRelevanceFilterVerifier(nn.Module):
                 score_fields=SUPPORT_MATRIX_COLUMNS,
                 support_matrix_columns=SUPPORT_MATRIX_COLUMNS,
                 allow_low_relevance_fallback=self.allow_low_relevance_fallback,
+                input_origin_counts=_origin_counts(stage_b.knowledge_candidates),
+                verified_origin_counts=_verified_origin_counts(verified),
+                rejected_count=len(rejection_records),
+                rejection_records=rejection_records,
+                score_weights=dict(FINAL_SCORE_WEIGHTS),
+                label_bonus=dict(SUPPORT_LABEL_BONUS),
+                verification_policy={
+                    "policy_type": "lightweight_candidate_filter",
+                    "requires_stage_c_verification": True,
+                    "min_relevance": float(self.min_relevance),
+                    "allow_low_relevance_fallback": bool(self.allow_low_relevance_fallback),
+                    "support_labels": ["support", "contradict", "insufficient"],
+                    "support_matrix_columns": list(SUPPORT_MATRIX_COLUMNS),
+                },
             ),
         )
 
@@ -162,8 +211,13 @@ def _build_claims(stage_a: StageAOutput) -> dict[str, str]:
     relation = ""
     cues: dict[str, float] = {}
     if hasattr(stage_a.metadata, "auxiliary_labels"):
-        relation = str(stage_a.metadata.auxiliary_labels.get("multimodal_relation", ""))
-        raw_cues = stage_a.metadata.auxiliary_labels.get("rhetorical_cues", {})
+        aux_labels = stage_a.metadata.auxiliary_labels
+        relation = str(
+            aux_labels.get("stage_a_multimodal_relation")
+            or aux_labels.get("multimodal_relation")
+            or ""
+        )
+        raw_cues = aux_labels.get("rhetorical_cues", {})
         cues = raw_cues if isinstance(raw_cues, dict) else {}
     text_spans = [item.text for item in stage_a.evidence_items if item.evidence_type in {"text_span", "global_text"} and item.text]
     local_symbols = [item.text for item in stage_a.evidence_items if item.evidence_type == "local_symbol" and item.text]
@@ -180,3 +234,50 @@ def _aggregate_support_label(labels: list[str]) -> str:
     if "support" in labels:
         return "support"
     return "insufficient"
+
+
+def _candidate_origin(candidate: KnowledgeCandidate) -> str:
+    origin = candidate.metadata.get("candidate_origin")
+    if origin:
+        return str(origin)
+    if candidate.candidate_type == "generated_hypothesis":
+        return "generated_hypothesis"
+    if candidate.source == "fallback":
+        return "fallback"
+    return "retrieved"
+
+
+def _origin_counts(candidates: list[KnowledgeCandidate]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for candidate in candidates:
+        origin = _candidate_origin(candidate)
+        counts[origin] = counts.get(origin, 0) + 1
+    return counts
+
+
+def _verified_origin_counts(items: list[VerifiedKnowledgeItem]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        origin = str(item.metadata.get("candidate_origin", "unknown"))
+        counts[origin] = counts.get(origin, 0) + 1
+    return counts
+
+
+def _low_relevance_rejection(
+    candidate: KnowledgeCandidate,
+    relevance_score: float,
+    verifier: KnowledgeRelevanceFilterVerifier,
+) -> dict[str, object]:
+    return {
+        "candidate_id": candidate.candidate_id,
+        "candidate_origin": _candidate_origin(candidate),
+        "source": candidate.source,
+        "candidate_type": candidate.candidate_type,
+        "reason": "low_relevance",
+        "relevance_score": float(relevance_score),
+        "min_relevance": float(verifier.min_relevance),
+        "allow_low_relevance_fallback": bool(verifier.allow_low_relevance_fallback),
+        "is_fallback": bool(candidate.metadata.get("is_fallback", candidate.source == "fallback")),
+        "is_generated": bool(candidate.metadata.get("is_generated", candidate.candidate_type == "generated_hypothesis")),
+        "is_external_knowledge": bool(candidate.metadata.get("is_external_knowledge", False)),
+    }

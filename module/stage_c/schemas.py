@@ -38,7 +38,7 @@ class StageCInput:
 
 @dataclass
 class StageCMetadata:
-    """Stage C metadata."""
+    """Auditable verification/filter state produced before evidence fusion."""
 
     input_candidate_count: int
     filtered_candidate_count: int
@@ -48,6 +48,13 @@ class StageCMetadata:
     score_fields: list[str] = field(default_factory=list)
     support_matrix_columns: list[str] = field(default_factory=list)
     allow_low_relevance_fallback: bool = True
+    input_origin_counts: dict[str, int] = field(default_factory=dict)
+    verified_origin_counts: dict[str, int] = field(default_factory=dict)
+    rejected_count: int = 0
+    rejection_records: list[dict[str, Any]] = field(default_factory=list)
+    score_weights: dict[str, float] = field(default_factory=dict)
+    label_bonus: dict[str, float] = field(default_factory=dict)
+    verification_policy: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
