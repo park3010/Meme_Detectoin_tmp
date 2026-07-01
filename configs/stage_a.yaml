@@ -1,3 +1,0 @@
-# Deprecated compatibility pointer. Use configs/config.yaml.
-deprecated: true
-canonical_config: configs/config.yaml

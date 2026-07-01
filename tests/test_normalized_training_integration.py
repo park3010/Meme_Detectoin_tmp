@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from experiments import structured_eval
+from experiments import evaluation as structured_eval
 from experiments.train import _normalize_sample
 from module.losses import extract_supervision_from_annotation
 

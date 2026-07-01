@@ -59,6 +59,105 @@ def test_required_consolidated_files_exist():
         assert (ROOT / relative).exists()
 
 
+def test_legacy_paths_are_physically_removed():
+    def script(name: str) -> str:
+        return f"scripts/{name}.py"
+
+    def config(name: str) -> str:
+        return f"configs/{name}.yaml"
+
+    removed_paths = [
+        "module/stage_a",
+        "module/stage_b",
+        "module/stage_c",
+        "module/stage_d",
+        "module/stage_e",
+        "module/pipeline",
+        "module/baselines",
+        "module/losses",
+        "module/backbones",
+        "dataset/label_adapter.py",
+        "dataset/normalized_labels.py",
+        "experiments/train_ours.py",
+        "experiments/train_baseline.py",
+        "experiments/metrics.py",
+        "experiments/structured_eval.py",
+        "experiments/evaluate_predictions.py",
+        script("run_ours_full"),
+        script("run_stage_a"),
+        script("run_stage_b"),
+        script("run_stage_c"),
+        script("run_stage_d"),
+        script("run_stage_e"),
+        script("run_pipeline"),
+        script("run_baseline_text_only"),
+        script("run_baseline_image_only"),
+        script("run_baseline_clip_concat"),
+        script("run_ablation"),
+        config("default"),
+        config("pipeline"),
+        config("stage_a"),
+        config("stage_b"),
+        config("stage_c"),
+        config("stage_d"),
+        config("stage_e"),
+        "configs/experiments",
+    ]
+    for relative in removed_paths:
+        assert not (ROOT / relative).exists(), relative
+
+
+def test_config_directory_contains_only_canonical_runtime_files():
+    files = sorted(path.name for path in (ROOT / "configs").iterdir())
+    assert files == ["annotation_normalization.yaml", "config.yaml", "label_vocab.yaml"]
+
+
+def test_active_source_has_no_legacy_imports_or_deleted_cli_references():
+    forbidden = [
+        "module." + "stage_a",
+        "module." + "stage_b",
+        "module." + "stage_c",
+        "module." + "stage_d",
+        "module." + "stage_e",
+        "module." + "pipeline",
+        "module." + "baselines",
+        "module." + "losses.",
+        "module." + "backbones",
+        "dataset." + "label_adapter",
+        "dataset." + "normalized_labels",
+        "experiments." + "train_ours",
+        "experiments." + "train_baseline",
+        "experiments." + "metrics",
+        "experiments." + "structured_eval",
+        "experiments." + "evaluate_predictions",
+        "run_ours_full" + ".py",
+        "run_stage_a" + ".py",
+        "run_stage_b" + ".py",
+        "run_stage_c" + ".py",
+        "run_stage_d" + ".py",
+        "run_stage_e" + ".py",
+        "run_pipeline" + ".py",
+        "run_baseline_text_only" + ".py",
+        "run_baseline_image_only" + ".py",
+        "run_baseline_clip_concat" + ".py",
+        "run_ablation" + ".py",
+    ]
+    roots = ["module", "dataset", "experiments", "scripts", "tests", "tool", "utils"]
+    suffixes = {".py", ".sh"}
+    offenders = []
+    for root_name in roots:
+        for path in (ROOT / root_name).rglob("*"):
+            if path.is_dir() or path.suffix not in suffixes or "__pycache__" in path.parts:
+                continue
+            if path.name == "test_refactor_usability.py":
+                continue
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            for needle in forbidden:
+                if needle in text:
+                    offenders.append(f"{path.relative_to(ROOT)}: {needle}")
+    assert offenders == []
+
+
 def test_print_pipeline_components(capsys):
     pipeline = HarmfulMemePipeline().eval()
     print_pipeline_components(pipeline)
