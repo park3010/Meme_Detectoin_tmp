@@ -13,7 +13,7 @@ from experiments.splits import DEFAULT_SEEDS, normalize_dataset_names
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default=str(ROOT / "configs" / "default.yaml"))
+    parser.add_argument("--config", default=str(ROOT / "configs" / "config.yaml"))
     parser.add_argument("--dataset", nargs="+", default=["harm_c"])
     parser.add_argument("--mode", nargs="+", default=["verified"], help="Knowledge mode(s), or all.")
     parser.add_argument("--seed", nargs="+", type=int, default=[42])

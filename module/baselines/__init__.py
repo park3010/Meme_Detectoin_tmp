@@ -1,5 +1,5 @@
-"""Simple baseline classifiers for harmfulness experiments."""
+"""Compatibility shim; use `module.baseline` instead."""
 
-from module.baselines.models import CLIPTextConcatClassifier, ImageOnlyCLIPClassifier, TextOnlyEncoderClassifier
+from __future__ import annotations
 
-__all__ = ["ImageOnlyCLIPClassifier", "TextOnlyEncoderClassifier", "CLIPTextConcatClassifier"]
+from module.baseline import *  # noqa: F401,F403

@@ -1,6 +1,5 @@
-"""Stage C: Knowledge Relevance Filter / Verifier."""
+"""Compatibility shim; use `module.knowledge_filter_verifier` instead."""
 
-from module.stage_c.knowledge_filter_verifier import KnowledgeRelevanceFilterVerifier
-from module.stage_c.schemas import StageCInput, StageCMetadata, StageCOutput, VerifiedKnowledgeItem
+from __future__ import annotations
 
-__all__ = ["KnowledgeRelevanceFilterVerifier", "StageCInput", "StageCMetadata", "StageCOutput", "VerifiedKnowledgeItem"]
+from module.knowledge_filter_verifier import *  # noqa: F401,F403

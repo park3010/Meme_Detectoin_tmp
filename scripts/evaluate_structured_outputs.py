@@ -7,7 +7,7 @@ from pathlib import Path
 
 from common import ROOT  # noqa: F401
 
-from experiments.structured_eval import evaluate_prediction_file
+from experiments.evaluation import evaluate_prediction_file
 
 
 def main() -> None:

@@ -15,7 +15,7 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=20)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--warmup", type=int, default=1)
-    parser.add_argument("--config", default=str(ROOT / "configs" / "default.yaml"))
+    parser.add_argument("--config", default=str(ROOT / "configs" / "config.yaml"))
     parser.add_argument("--output-root", default="result")
     parser.add_argument("--disable-tqdm", action="store_true")
     parser.add_argument("--print-components", action="store_true")

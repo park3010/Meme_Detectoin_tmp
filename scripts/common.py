@@ -14,7 +14,7 @@ if str(ROOT) not in sys.path:
 
 
 def add_common_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    parser.add_argument("--config", default="configs/default.yaml", help="Path to YAML config.")
+    parser.add_argument("--config", default="configs/config.yaml", help="Path to YAML config.")
     parser.add_argument("--dataset", nargs="*", default=None, help="Dataset names: harm_c harm_p memotion facebook.")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of samples.")
     parser.add_argument("--no-save", action="store_true", help="Run without writing result files.")

@@ -10,11 +10,11 @@ from typing import Any
 import torch
 
 from dataset import MemeDataset
-from experiments.metrics import compute_harmfulness_metrics
+from experiments.evaluation import compute_harmfulness_metrics
 from experiments.progress import progress_iter
 from experiments.splits import label_to_int
 from module.losses import extract_supervision_from_annotation
-from module.pipeline.model import HarmfulMemePipeline
+from module.runner import HarmfulMemePipeline
 from utils.io import load_yaml, write_jsonl
 from utils.text_utils import jaccard_similarity, normalize_text
 
@@ -22,7 +22,7 @@ from utils.text_utils import jaccard_similarity, normalize_text
 def run_verifier_evaluation(
     dataset_name: str = "harm_c",
     seed: int = 42,
-    config_path: str = "configs/default.yaml",
+    config_path: str = "configs/config.yaml",
     output_root: str = "result",
     limit: int | None = None,
     disable_tqdm: bool = False,

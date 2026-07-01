@@ -1,15 +1,5 @@
-"""Canonical Stage D fusion implementation imports."""
+"""Compatibility shim; use `module.evidence_fusion_reasoning` instead."""
 
-from module.stage_d.evidence_fusion_reasoning import EvidenceFusionReasoning
-from module.stage_d.gating import EvidenceGate
-from module.stage_d.internal_aggregator import InternalEvidenceAggregator
-from module.stage_d.knowledge_cross_attention import KnowledgeConditionedCrossAttention
-from module.stage_d.task_reasoning import TaskAwareReasoningHeads
+from __future__ import annotations
 
-__all__ = [
-    "InternalEvidenceAggregator",
-    "KnowledgeConditionedCrossAttention",
-    "EvidenceGate",
-    "TaskAwareReasoningHeads",
-    "EvidenceFusionReasoning",
-]
+from module.evidence_fusion_reasoning import *  # noqa: F401,F403

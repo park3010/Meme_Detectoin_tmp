@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from module.stage_a import InternalEvidenceExtractor
-from module.stage_b import ExternalKnowledgeAcquisition
-from module.stage_c import KnowledgeRelevanceFilterVerifier
+from module.internal_evidence_extractor import InternalEvidenceExtractor
+from module.external_knowledge_acquisition import ExternalKnowledgeAcquisition
+from module.knowledge_filter_verifier import KnowledgeRelevanceFilterVerifier
 
 
 def test_stage_c_forward_from_candidates():

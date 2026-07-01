@@ -6,7 +6,7 @@ import argparse
 
 from common import ROOT  # noqa: F401
 
-from experiments.structured_eval import write_structured_aggregate_tables
+from experiments.evaluation import write_structured_aggregate_tables
 
 
 def main() -> None:

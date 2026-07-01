@@ -11,7 +11,7 @@ from experiments.dataset_stats import compute_dataset_statistics, format_statist
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default=str(ROOT / "configs" / "default.yaml"))
+    parser.add_argument("--config", default=str(ROOT / "configs" / "config.yaml"))
     parser.add_argument("--dataset", nargs="+", default=["all"], help="all or one/more of harm_c harm_p facebook memotion")
     parser.add_argument("--output-root", default="result/dataset_stats")
     args = parser.parse_args()

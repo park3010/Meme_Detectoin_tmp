@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from module.stage_a import InternalEvidenceExtractor
-from module.stage_b import ExternalKnowledgeAcquisition
-from module.stage_c import KnowledgeRelevanceFilterVerifier
-from module.stage_d import EvidenceFusionReasoning
-from module.stage_d.gating import EvidenceGate
+from module.internal_evidence_extractor import InternalEvidenceExtractor
+from module.external_knowledge_acquisition import ExternalKnowledgeAcquisition
+from module.knowledge_filter_verifier import KnowledgeRelevanceFilterVerifier
+from module.evidence_fusion_reasoning import EvidenceFusionReasoning
+from module.evidence_fusion_reasoning import EvidenceGate
 
 
 def test_stage_d_forward_pytorch_outputs():

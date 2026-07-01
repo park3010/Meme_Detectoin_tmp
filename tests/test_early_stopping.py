@@ -9,7 +9,7 @@ import torch
 
 from dataset import MemeDataset
 from experiments.early_stopping import EarlyStopping, save_checkpoint, structured_validation_score
-from experiments.train_baseline import BaselineRunConfig, run_baseline_experiment
+from experiments.train import BaselineRunConfig, run_baseline_experiment
 
 
 def test_early_stopping_stops_after_patience():
@@ -74,7 +74,8 @@ def test_training_clis_accept_early_stopping_flags():
     baseline = subprocess.run(
         [
             sys.executable,
-            "scripts/run_baseline_text_only.py",
+            "scripts/run.py",
+            "baseline",
             "--help",
         ],
         cwd=Path(__file__).resolve().parents[1],
@@ -89,7 +90,8 @@ def test_training_clis_accept_early_stopping_flags():
     ours = subprocess.run(
         [
             sys.executable,
-            "scripts/run_ours_full.py",
+            "scripts/run.py",
+            "train",
             "--help",
         ],
         cwd=Path(__file__).resolve().parents[1],

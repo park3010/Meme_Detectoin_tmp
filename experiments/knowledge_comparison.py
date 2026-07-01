@@ -15,7 +15,7 @@ def run_knowledge_comparison(
     dataset_name: str,
     mode: str,
     seed: int = 42,
-    config_path: str = "configs/default.yaml",
+    config_path: str = "configs/config.yaml",
     split_file: str | None = None,
     output_root: str = "result",
     limit: int | None = None,

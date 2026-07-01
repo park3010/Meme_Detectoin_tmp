@@ -1,14 +1,3 @@
-include: ../default.yaml
-
-experiment:
-  name: ours_full
-  seeds: [42, 52, 123, 777, 2026]
-  epochs: 5
-  lr: 0.0001
-  patience: 2
-  freeze_backbones: true
-  train_relevance_mlp: true
-  structured_auxiliary: true
-
-runtime:
-  device: cuda
+# Deprecated compatibility pointer. Use configs/config.yaml.
+deprecated: true
+canonical_config: configs/config.yaml

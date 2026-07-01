@@ -1,14 +1,5 @@
-"""Stage B: External Knowledge Acquisition."""
+"""Compatibility shim; use `module.external_knowledge_acquisition` instead."""
 
-from module.stage_b.external_knowledge_acquisition import ExternalKnowledgeAcquisition
-from module.stage_b.schemas import KnowledgeCandidate, LinkedEntity, QueryBundle, StageBInput, StageBMetadata, StageBOutput
+from __future__ import annotations
 
-__all__ = [
-    "ExternalKnowledgeAcquisition",
-    "KnowledgeCandidate",
-    "LinkedEntity",
-    "QueryBundle",
-    "StageBInput",
-    "StageBMetadata",
-    "StageBOutput",
-]
+from module.external_knowledge_acquisition import *  # noqa: F401,F403

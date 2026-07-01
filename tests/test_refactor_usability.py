@@ -1,19 +1,28 @@
 from __future__ import annotations
 
-from module.baselines.classifier_heads import MLPClassifierHead
-from module.baselines.clip_text_concat import CLIPTextConcatClassifier
-from module.baselines.image_only_clip import ImageOnlyCLIPClassifier
-from module.baselines.models import TextOnlyEncoderClassifier
-from module.stage_a.extractor import InternalEvidenceExtractor
-from module.stage_b.acquisition import ExternalKnowledgeAcquisition
-from module.stage_c.verifier import KnowledgeRelevanceFilterVerifier
-from module.stage_d.fusion import EvidenceFusionReasoning
-from module.stage_e.interpretation import StructuredInterpretationHead
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPTS = ROOT / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+from module.baseline import MLPClassifierHead
+from module.baseline import CLIPTextConcatClassifier
+from module.baseline import ImageOnlyCLIPClassifier
+from module.baseline import TextOnlyEncoderClassifier
+from module.internal_evidence_extractor import InternalEvidenceExtractor
+from module.external_knowledge_acquisition import ExternalKnowledgeAcquisition
+from module.knowledge_filter_verifier import KnowledgeRelevanceFilterVerifier
+from module.evidence_fusion_reasoning import EvidenceFusionReasoning
+from module.structured_interpretation_head import StructuredInterpretationHead
 from experiments.components import print_pipeline_components
-from module.pipeline.model import HarmfulMemePipeline
+from module.runner import HarmfulMemePipeline
+import run
 
 
-def test_old_and_new_import_paths_work():
+def test_consolidated_public_imports_work():
     assert ImageOnlyCLIPClassifier.model_name == "image_only_clip"
     assert TextOnlyEncoderClassifier.model_name == "text_only_encoder"
     assert CLIPTextConcatClassifier.model_name == "clip_text_concat"
@@ -25,9 +34,34 @@ def test_old_and_new_import_paths_work():
     assert StructuredInterpretationHead is not None
 
 
+def test_unified_cli_exposes_required_subcommands():
+    parser = run.build_parser()
+    for command in ["train", "baseline", "stage", "evaluate", "ablation", "audit"]:
+        assert command in parser.format_help()
+
+
+def test_required_consolidated_files_exist():
+    for relative in [
+        "module/internal_evidence_extractor.py",
+        "module/external_knowledge_acquisition.py",
+        "module/knowledge_filter_verifier.py",
+        "module/evidence_fusion_reasoning.py",
+        "module/structured_interpretation_head.py",
+        "module/baseline.py",
+        "module/losses.py",
+        "module/runner.py",
+        "module/backbone/vision.py",
+        "module/backbone/text.py",
+        "module/backbone/retrieval.py",
+        "module/backbone/generation.py",
+        "configs/config.yaml",
+    ]:
+        assert (ROOT / relative).exists()
+
+
 def test_print_pipeline_components(capsys):
     pipeline = HarmfulMemePipeline().eval()
     print_pipeline_components(pipeline)
     captured = capsys.readouterr()
     assert "Pipeline components:" in captured.out
-    assert "module.stage_a.extractor.InternalEvidenceExtractor" in captured.out
+    assert "module.internal_evidence_extractor.InternalEvidenceExtractor" in captured.out

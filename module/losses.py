@@ -1,15 +1,4 @@
-"""Modular loss utilities for Phase 2 research experiments.
-
-Expected supervision can come from annotation JSONL fields such as:
-- `harmfulness.label` or binary raw labels
-- `target.target_granularity`
-- `intent.intent_primary`
-- `tactic.tactic_rhetorical`
-- evidence ids for internal/external attribution, when available
-
-The helpers accept logits when a training script keeps tensors alive, and can
-also operate on detached score dictionaries for smoke tests and analysis.
-"""
+"""Structured loss utilities."""
 
 from __future__ import annotations
 
@@ -21,8 +10,6 @@ from torch import nn
 import torch.nn.functional as F
 
 from utils.text_utils import jaccard_similarity, normalize_text
-
-
 LOSS_PROVENANCE = {
     "harmfulness": "logits",
     "target_granularity": "logits",
@@ -528,3 +515,17 @@ def _as_list(value: Any) -> list[Any]:
     if isinstance(value, tuple):
         return list(value)
     return [value]
+
+
+__all__ = [
+    "LOSS_PROVENANCE",
+    "StructuredLossConfig",
+    "StructuredMemeLoss",
+    "classification_loss_from_scores",
+    "classification_loss_from_logits",
+    "multilabel_loss_from_logits",
+    "binary_loss_from_logits",
+    "extract_supervision_from_annotation",
+    "is_differentiable_loss",
+    "loss_provenance",
+]

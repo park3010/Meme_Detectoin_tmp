@@ -8,10 +8,10 @@ import torch
 from dataset import MemeDataset
 from experiments.aggregate_results import write_aggregate_tables
 from experiments.dataset_stats import compute_dataset_statistics
-from experiments.metrics import compute_harmfulness_metrics
+from experiments.evaluation import compute_harmfulness_metrics
 from experiments.splits import build_splits_for_dataset, label_to_int
-from experiments.train_baseline import BaselineRunConfig, run_baseline_experiment
-from module.baselines import CLIPTextConcatClassifier, ImageOnlyCLIPClassifier, TextOnlyEncoderClassifier
+from experiments.train import BaselineRunConfig, run_baseline_experiment
+from module.baseline import CLIPTextConcatClassifier, ImageOnlyCLIPClassifier, TextOnlyEncoderClassifier
 
 
 def test_metrics_handle_auc_edge_cases():

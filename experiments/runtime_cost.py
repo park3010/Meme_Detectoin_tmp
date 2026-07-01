@@ -12,7 +12,7 @@ import torch
 
 from dataset import MemeDataset
 from experiments.progress import progress_iter
-from module.pipeline.model import HarmfulMemePipeline
+from module.runner import HarmfulMemePipeline
 from utils.io import load_yaml, write_json
 
 
@@ -24,7 +24,7 @@ def run_runtime_cost_analysis(
     limit: int = 20,
     device: str = "cpu",
     warmup: int = 1,
-    config_path: str = "configs/default.yaml",
+    config_path: str = "configs/config.yaml",
     output_root: str = "result",
     disable_tqdm: bool = False,
     print_components: bool = False,

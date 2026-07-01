@@ -1,6 +1,5 @@
-"""Pipeline wiring for the modular meme interpretation scaffold."""
+"""Compatibility shim; use `module.runner` instead."""
 
-from module.pipeline.model import HarmfulMemePipeline
-from module.pipeline.runner import PipelineRunner
+from __future__ import annotations
 
-__all__ = ["HarmfulMemePipeline", "PipelineRunner"]
+from module.runner import *  # noqa: F401,F403

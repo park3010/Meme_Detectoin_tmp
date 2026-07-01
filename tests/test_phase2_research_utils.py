@@ -8,7 +8,7 @@ from module.losses import (
     extract_supervision_from_annotation,
     multilabel_loss_from_logits,
 )
-from module.pipeline.model import HarmfulMemePipeline
+from module.runner import HarmfulMemePipeline
 from utils.eval_utils import binary_classification_metrics, evidence_precision_recall_at_k, multiclass_metrics
 
 

@@ -1,6 +1,5 @@
-"""Stage D: Evidence Fusion & Reasoning."""
+"""Compatibility shim; use `module.evidence_fusion_reasoning` instead."""
 
-from module.stage_d.evidence_fusion_reasoning import EvidenceFusionReasoning
-from module.stage_d.schemas import StageDInput, StageDMetadata, StageDOutput
+from __future__ import annotations
 
-__all__ = ["EvidenceFusionReasoning", "StageDInput", "StageDMetadata", "StageDOutput"]
+from module.evidence_fusion_reasoning import *  # noqa: F401,F403

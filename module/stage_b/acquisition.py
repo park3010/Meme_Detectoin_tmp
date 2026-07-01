@@ -1,16 +1,5 @@
-"""Canonical Stage B implementation imports."""
+"""Compatibility shim; use `module.external_knowledge_acquisition` instead."""
 
-from module.stage_b.context_generator import ContextAugmentationGenerator
-from module.stage_b.entity_linker import EntityConceptLinker
-from module.stage_b.external_knowledge_acquisition import ExternalKnowledgeAcquisition, collect_linkable_surface_forms
-from module.stage_b.hybrid_retriever import HybridRetriever
-from module.stage_b.query_constructor import QueryConstructor
+from __future__ import annotations
 
-__all__ = [
-    "QueryConstructor",
-    "EntityConceptLinker",
-    "HybridRetriever",
-    "ContextAugmentationGenerator",
-    "ExternalKnowledgeAcquisition",
-    "collect_linkable_surface_forms",
-]
+from module.external_knowledge_acquisition import *  # noqa: F401,F403

@@ -1,5 +1,5 @@
-"""Compatibility wrapper for the text-only baseline."""
+"""Compatibility shim; use `module.baseline` instead."""
 
-from module.baselines.models import TextOnlyEncoderClassifier
+from __future__ import annotations
 
-__all__ = ["TextOnlyEncoderClassifier"]
+from module.baseline import *  # noqa: F401,F403

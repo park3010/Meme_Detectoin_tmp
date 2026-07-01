@@ -6,9 +6,9 @@ import csv
 from pathlib import Path
 from typing import Any
 
-from experiments.metrics import compute_harmfulness_metrics
+from experiments.evaluation import compute_harmfulness_metrics
 from experiments.prediction_io import load_prediction_records
-from experiments.structured_eval import evaluate_structured_predictions
+from experiments.evaluation import evaluate_structured_predictions
 
 
 SUBSETS = [

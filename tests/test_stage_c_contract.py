@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from module.stage_a import InternalEvidenceExtractor
-from module.stage_b import ExternalKnowledgeAcquisition
-from module.stage_c import KnowledgeRelevanceFilterVerifier
-from module.stage_c.knowledge_filter_verifier import _build_claims
+from module.internal_evidence_extractor import InternalEvidenceExtractor
+from module.external_knowledge_acquisition import ExternalKnowledgeAcquisition
+from module.knowledge_filter_verifier import KnowledgeRelevanceFilterVerifier
+from module.knowledge_filter_verifier import _build_claims
 
 
 def test_stage_c_metadata_alignment_and_verified_provenance():

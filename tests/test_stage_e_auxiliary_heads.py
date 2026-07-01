@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from module.losses import StructuredMemeLoss, extract_supervision_from_annotation
-from module.stage_a import InternalEvidenceExtractor
-from module.stage_b import ExternalKnowledgeAcquisition
-from module.stage_c import KnowledgeRelevanceFilterVerifier
-from module.stage_d import EvidenceFusionReasoning
-from module.stage_e import StructuredInterpretationHead
+from module.internal_evidence_extractor import InternalEvidenceExtractor
+from module.external_knowledge_acquisition import ExternalKnowledgeAcquisition
+from module.knowledge_filter_verifier import KnowledgeRelevanceFilterVerifier
+from module.evidence_fusion_reasoning import EvidenceFusionReasoning
+from module.structured_interpretation_head import StructuredInterpretationHead
 
 
 def test_stage_e_auxiliary_heads_emit_trainable_payloads():

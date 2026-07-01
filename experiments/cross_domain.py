@@ -11,14 +11,14 @@ import torch
 import torch.nn.functional as F
 
 from dataset import MemeDataset
-from experiments.metrics import compute_harmfulness_metrics
+from experiments.evaluation import compute_harmfulness_metrics
 from experiments.prediction_io import save_predictions_and_metrics, stage_outputs_to_prediction_record
 from experiments.progress import progress_iter
 from experiments.splits import build_splits_for_dataset, label_to_int, load_split_file, save_splits, split_samples
-from experiments.structured_eval import evaluate_structured_predictions
-from experiments.train_ours import OursRunConfig, configure_trainable_parameters
+from experiments.evaluation import evaluate_structured_predictions
+from experiments.train import OursRunConfig, configure_trainable_parameters
 from module.losses import StructuredMemeLoss, extract_supervision_from_annotation
-from module.pipeline.model import HarmfulMemePipeline
+from module.runner import HarmfulMemePipeline
 from utils.io import load_yaml
 from utils.seed import set_seed
 
@@ -34,7 +34,7 @@ class CrossDomainConfig:
     setting: str
     model_name: str = "ours_full"
     seed: int = 42
-    config_path: str = "configs/default.yaml"
+    config_path: str = "configs/config.yaml"
     output_root: str = "result"
     train_dataset: str | None = None
     heldout: str | None = None

@@ -1,9 +1,13 @@
-"""Train/evaluate the image-only CLIP baseline."""
+#!/usr/bin/env python
+"""Compatibility wrapper around `scripts/run.py baseline --baseline image_only_clip`."""
 
 from __future__ import annotations
 
-from run_baseline_text_only import run_cli
+import sys
+
+from run import main
 
 
 if __name__ == "__main__":
-    run_cli("image_only_clip")
+    sys.argv[1:1] = ['baseline', '--baseline', 'image_only_clip']
+    main()

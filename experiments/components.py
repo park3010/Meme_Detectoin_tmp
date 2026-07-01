@@ -6,11 +6,11 @@ from typing import Any
 
 
 CANONICAL_STAGE_PATHS = {
-    "stage_a": "module.stage_a.extractor.InternalEvidenceExtractor",
-    "stage_b": "module.stage_b.acquisition.ExternalKnowledgeAcquisition",
-    "stage_c": "module.stage_c.verifier.KnowledgeRelevanceFilterVerifier",
-    "stage_d": "module.stage_d.fusion.EvidenceFusionReasoning",
-    "stage_e": "module.stage_e.interpretation.StructuredInterpretationHead",
+    "stage_a": "module.internal_evidence_extractor.InternalEvidenceExtractor",
+    "stage_b": "module.external_knowledge_acquisition.ExternalKnowledgeAcquisition",
+    "stage_c": "module.knowledge_filter_verifier.KnowledgeRelevanceFilterVerifier",
+    "stage_d": "module.evidence_fusion_reasoning.EvidenceFusionReasoning",
+    "stage_e": "module.structured_interpretation_head.StructuredInterpretationHead",
 }
 
 

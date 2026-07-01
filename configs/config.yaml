@@ -1,0 +1,129 @@
+schema_version: meme_detection_config_v1
+
+paths:
+  dataset_root: dataset/source
+  annotation_root: dataset/annotation
+  normalized_root: dataset/annotation_normalized
+  result_root: result
+  retrieval_corpus_paths:
+    - dataset/source/wiki_common/cache/corpus_texts.jsonl
+
+runtime:
+  device: cuda
+  seed: 13
+  num_workers: 4
+  max_samples: null
+  save_per_sample: false
+  log_level: INFO
+
+data:
+  keep_missing_images: true
+  default_datasets:
+    - harm_c
+    - harm_p
+    - facebook
+    - memotion
+  split_ratios:
+    train: 0.7
+    valid: 0.1
+    test: 0.2
+
+model:
+  hidden_dim: 256
+  internal_top_k: 6
+  knowledge_top_k: 8
+
+backbone:
+  clip:
+    prefer_pretrained: true
+    model_name: ViT-B-32
+  text:
+    prefer_transformers: true
+    model_name: microsoft/deberta-v3-base
+  detector:
+    mode: heuristic
+  retriever:
+    backend: local
+    fallback_candidates: true
+    max_documents: 5000
+    use_cross_encoder_rerank: true
+  generator:
+    backend: template
+
+pipeline:
+  enabled_stages:
+    - stage_a
+    - stage_b
+    - stage_c
+    - stage_d
+    - stage_e
+
+stages:
+  stage_a:
+    hidden_dim: 256
+    max_text_tokens: 64
+    max_rois: 3
+    output_path: result/stage_a/internal_evidence.jsonl
+  stage_b:
+    max_queries: 6
+    top_k: 8
+    max_documents: 5000
+    use_cross_encoder_rerank: true
+    output_path: result/stage_b/knowledge_candidates.jsonl
+  stage_c:
+    top_k: 8
+    min_relevance: 0.05
+    allow_low_relevance_fallback: true
+    output_path: result/stage_c/verified_knowledge.jsonl
+  stage_d:
+    hidden_dim: 256
+    num_heads: 4
+    num_layers: 2
+    output_path: result/stage_d/fusion_states.pt
+  stage_e:
+    output_path: result/stage_e/final_predictions.jsonl
+
+experiments:
+  ours_full:
+    name: ours_full
+    seeds: [42, 52, 123, 777, 2026]
+    epochs: 5
+    lr: 0.0001
+    patience: 2
+    freeze_backbones: true
+    train_relevance_mlp: true
+    structured_auxiliary: true
+  ablations:
+    name: stage_wise_ablation
+    seeds: [42, 52, 123, 777, 2026]
+    ablations:
+      - full
+      - w_o_roi
+      - w_o_incongruity
+      - w_o_retrieval
+      - w_o_context_generation
+      - w_o_relevance_scorer
+      - w_o_support_verifier
+      - w_o_temporal_cultural_validator
+      - w_o_task_aware_gate
+      - w_o_structured_auxiliary
+      - label_only_no_evidence
+    fusion_modes:
+      - concat_mlp
+      - mean_pooling
+      - cross_attention
+      - shared_gate
+      - task_aware_gate
+      - task_aware_gate_verified
+  knowledge_comparison:
+    name: knowledge_comparison
+    seeds: [42, 52, 123, 777, 2026]
+    modes:
+      - no_knowledge
+      - generated_only
+      - retrieved_only
+      - generated_retrieved
+      - verified
+
+debug:
+  verbose_outputs: false

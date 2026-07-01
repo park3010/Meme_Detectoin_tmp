@@ -1,15 +1,5 @@
-"""Canonical Stage C verifier implementation imports."""
+"""Compatibility shim; use `module.knowledge_filter_verifier` instead."""
 
-from module.stage_c.knowledge_filter_verifier import KnowledgeRelevanceFilterVerifier
-from module.stage_c.redundancy_reducer import RedundancyReducer
-from module.stage_c.relevance_scorer import EvidenceAwareRelevanceScorer
-from module.stage_c.support_verifier import SupportContradictionVerifier
-from module.stage_c.validator import CredibilityTemporalValidator
+from __future__ import annotations
 
-__all__ = [
-    "EvidenceAwareRelevanceScorer",
-    "SupportContradictionVerifier",
-    "CredibilityTemporalValidator",
-    "RedundancyReducer",
-    "KnowledgeRelevanceFilterVerifier",
-]
+from module.knowledge_filter_verifier import *  # noqa: F401,F403

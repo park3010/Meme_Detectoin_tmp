@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from module.stage_a import InternalEvidenceExtractor
+from module.internal_evidence_extractor import InternalEvidenceExtractor
 
 
 def test_stage_a_internal_evidence_contract():

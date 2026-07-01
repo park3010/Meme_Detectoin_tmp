@@ -1,8 +1,3 @@
-include: default.yaml
-
-stage_b:
-  max_queries: 6
-  top_k: 8
-  max_documents: 5000
-  use_cross_encoder_rerank: true
-  output_path: result/stage_b/knowledge_candidates.jsonl
+# Deprecated compatibility pointer. Use configs/config.yaml.
+deprecated: true
+canonical_config: configs/config.yaml

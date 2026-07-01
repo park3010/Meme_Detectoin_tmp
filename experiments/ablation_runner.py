@@ -10,14 +10,14 @@ import torch
 
 from dataset import MemeDataset
 from experiments.ablation_configs import ABLATION_MODES, FUSION_MODES, AblationConfig, get_ablation_config
-from experiments.metrics import compute_harmfulness_metrics
+from experiments.evaluation import compute_harmfulness_metrics
 from experiments.prediction_io import save_predictions_and_metrics, stage_outputs_to_prediction_record
 from experiments.progress import progress_iter
 from experiments.splits import build_splits_for_dataset, label_to_int, load_split_file, save_splits, split_samples
-from experiments.structured_eval import evaluate_structured_predictions
-from module.pipeline.model import HarmfulMemePipeline
-from module.stage_b.schemas import QueryBundle, StageBMetadata, StageBOutput
-from module.stage_c.schemas import StageCMetadata, StageCOutput
+from experiments.evaluation import evaluate_structured_predictions
+from module.runner import HarmfulMemePipeline
+from module.external_knowledge_acquisition import QueryBundle, StageBMetadata, StageBOutput
+from module.knowledge_filter_verifier import StageCMetadata, StageCOutput
 from utils.io import load_yaml, write_jsonl
 from utils.seed import set_seed
 
@@ -26,7 +26,7 @@ def run_ablation_experiment(
     dataset_name: str,
     ablation_name: str,
     seed: int = 42,
-    config_path: str = "configs/default.yaml",
+    config_path: str = "configs/config.yaml",
     split_file: str | None = None,
     output_root: str = "result",
     limit: int | None = None,
@@ -58,7 +58,7 @@ def run_fusion_experiment(
     dataset_name: str,
     fusion_mode: str,
     seed: int = 42,
-    config_path: str = "configs/default.yaml",
+    config_path: str = "configs/config.yaml",
     split_file: str | None = None,
     output_root: str = "result",
     limit: int | None = None,
@@ -94,7 +94,7 @@ def run_framework_variant(
     dataset_name: str,
     model_name: str,
     seed: int = 42,
-    config_path: str = "configs/default.yaml",
+    config_path: str = "configs/config.yaml",
     split_file: str | None = None,
     output_root: str = "result",
     limit: int | None = None,
@@ -276,7 +276,7 @@ def _empty_stage_c(stage_a):
 
 def _minimal_stage_c_from_stage_b(stage_a, stage_b):
     items = []
-    from module.stage_c.schemas import VerifiedKnowledgeItem
+    from module.knowledge_filter_verifier import VerifiedKnowledgeItem
 
     for idx, candidate in enumerate(stage_b.knowledge_candidates):
         items.append(

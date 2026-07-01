@@ -13,7 +13,7 @@ from utils.io import load_yaml
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default=str(ROOT / "configs" / "default.yaml"))
+    parser.add_argument("--config", default=str(ROOT / "configs" / "config.yaml"))
     parser.add_argument("--dataset", nargs="+", default=["all"])
     parser.add_argument("--seed", nargs="+", type=int, default=[42])
     parser.add_argument("--all-seeds", action="store_true", help="Generate the default five paper seeds.")

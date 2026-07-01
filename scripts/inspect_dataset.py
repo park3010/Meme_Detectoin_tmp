@@ -12,7 +12,7 @@ from utils.io import load_yaml
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default=str(ROOT / "configs" / "default.yaml"))
+    parser.add_argument("--config", default=str(ROOT / "configs" / "config.yaml"))
     parser.add_argument("--dataset", nargs="*", default=None)
     parser.add_argument("--limit", type=int, default=5)
     args = parser.parse_args()

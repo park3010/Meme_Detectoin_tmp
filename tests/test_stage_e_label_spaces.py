@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import torch
 
-from module.stage_e.intent_head import IntentHead
-from module.stage_e.tactic_head import TacticHead
-from module.stage_e.target_head import TargetHead
+from module.structured_interpretation_head import IntentHead
+from module.structured_interpretation_head import TacticHead
+from module.structured_interpretation_head import TargetHead
 from utils.io import load_yaml
 
 

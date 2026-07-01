@@ -1,5 +1,5 @@
-"""Compatibility wrapper for the image-only baseline."""
+"""Compatibility shim; use `module.baseline` instead."""
 
-from module.baselines.models import ImageOnlyCLIPClassifier
+from __future__ import annotations
 
-__all__ = ["ImageOnlyCLIPClassifier"]
+from module.baseline import *  # noqa: F401,F403

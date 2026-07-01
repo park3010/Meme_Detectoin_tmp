@@ -11,9 +11,9 @@ if str(ROOT) not in sys.path:
 from experiments.ablation_configs import ABLATION_MODES, FUSION_MODES, KNOWLEDGE_MODES, get_ablation_config
 from experiments.ablation_runner import execute_variant_pipeline
 from experiments.knowledge_comparison import run_knowledge_comparison
-from experiments.structured_eval import evaluate_structured_predictions, write_structured_aggregate_tables
-from experiments.train_ours import OursRunConfig, run_ours_experiment
-from module.pipeline.model import HarmfulMemePipeline
+from experiments.evaluation import evaluate_structured_predictions, write_structured_aggregate_tables
+from experiments.train import OursRunConfig, run_ours_experiment
+from module.runner import HarmfulMemePipeline
 
 
 def test_structured_evaluator_on_fake_predictions():

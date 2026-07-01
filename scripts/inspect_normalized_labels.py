@@ -7,7 +7,7 @@ import argparse
 from common import print_json
 
 from dataset import LabelVocab, NormalizedMemeDataset
-from dataset.label_adapter import _source_dataset_names
+from dataset.labels import _source_dataset_names
 
 
 def main() -> None:

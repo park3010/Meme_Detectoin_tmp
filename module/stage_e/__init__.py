@@ -1,6 +1,5 @@
-"""Stage E: Structured Interpretation Head."""
+"""Compatibility shim; use `module.structured_interpretation_head` instead."""
 
-from module.stage_e.schemas import Prediction, StageEMetadata, StageEOutput
-from module.stage_e.structured_interpretation_head import StructuredInterpretationHead
+from __future__ import annotations
 
-__all__ = ["Prediction", "StageEMetadata", "StageEOutput", "StructuredInterpretationHead"]
+from module.structured_interpretation_head import *  # noqa: F401,F403

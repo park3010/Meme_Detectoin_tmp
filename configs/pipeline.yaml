@@ -1,6 +1,3 @@
-include: default.yaml
-
-pipeline:
-  run_stages: [a, b, c, d, e]
-  save_intermediates: true
-  output_dir: result
+# Deprecated compatibility pointer. Use configs/config.yaml.
+deprecated: true
+canonical_config: configs/config.yaml

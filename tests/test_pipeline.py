@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from module.pipeline.model import HarmfulMemePipeline
+from module.runner import HarmfulMemePipeline
 
 
 def test_full_pipeline_smoke():

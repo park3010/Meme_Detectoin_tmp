@@ -1,5 +1,5 @@
-"""Compatibility wrapper for the image+text concat baseline."""
+"""Compatibility shim; use `module.baseline` instead."""
 
-from module.baselines.models import CLIPTextConcatClassifier
+from __future__ import annotations
 
-__all__ = ["CLIPTextConcatClassifier"]
+from module.baseline import *  # noqa: F401,F403

@@ -1,7 +1,3 @@
-include: default.yaml
-
-stage_c:
-  top_k: 8
-  min_relevance: 0.05
-  allow_low_relevance_fallback: true
-  output_path: result/stage_c/verified_knowledge.jsonl
+# Deprecated compatibility pointer. Use configs/config.yaml.
+deprecated: true
+canonical_config: configs/config.yaml

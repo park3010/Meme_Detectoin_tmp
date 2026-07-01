@@ -1,7 +1,3 @@
-include: default.yaml
-
-stage_a:
-  hidden_dim: 256
-  max_text_tokens: 64
-  max_rois: 3
-  output_path: result/stage_a/internal_evidence.jsonl
+# Deprecated compatibility pointer. Use configs/config.yaml.
+deprecated: true
+canonical_config: configs/config.yaml

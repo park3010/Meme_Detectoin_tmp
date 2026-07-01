@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from experiments.metrics import metrics_to_csv_row, summarize_mean_std
+from experiments.evaluation import metrics_to_csv_row, summarize_mean_std
 
 
 MAIN_COLUMNS = ["dataset", "model", "seed", "accuracy", "precision", "recall", "macro_f1", "weighted_f1", "roc_auc", "tn", "fp", "fn", "tp"]

@@ -14,7 +14,7 @@ def main() -> None:
     parser.add_argument("--setting", required=True, choices=["in_domain", "train_one_test_others", "mixed_train", "leave_one_domain_out"])
     parser.add_argument("--model", default="ours_full")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--config", default=str(ROOT / "configs" / "default.yaml"))
+    parser.add_argument("--config", default=str(ROOT / "configs" / "config.yaml"))
     parser.add_argument("--train-dataset", default=None)
     parser.add_argument("--heldout", default=None)
     parser.add_argument("--test-dataset", default=None)

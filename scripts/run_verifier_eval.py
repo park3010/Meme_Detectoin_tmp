@@ -14,7 +14,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", nargs="+", default=["harm_c"])
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--config", default=str(ROOT / "configs" / "default.yaml"))
+    parser.add_argument("--config", default=str(ROOT / "configs" / "config.yaml"))
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--output-root", default="result")
     parser.add_argument("--disable-tqdm", action="store_true")

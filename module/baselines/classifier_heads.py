@@ -1,5 +1,5 @@
-"""Compatibility wrapper for baseline classifier heads."""
+"""Compatibility shim; use `module.baseline` instead."""
 
-from module.baselines.models import MLPClassifierHead, classifier_output
+from __future__ import annotations
 
-__all__ = ["MLPClassifierHead", "classifier_output"]
+from module.baseline import *  # noqa: F401,F403

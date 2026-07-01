@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 
 from common import add_common_args
-from module.pipeline.runner import PipelineRunner
+from module.runner import PipelineRunner
 
 
 def main() -> None:
