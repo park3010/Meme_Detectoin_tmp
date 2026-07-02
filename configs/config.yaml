@@ -124,6 +124,84 @@ experiments:
       - retrieved_only
       - generated_retrieved
       - verified
+  suites:
+    core_smoke:
+      description: "Small end-to-end contract validation suite."
+      datasets: [harm_c]
+      seeds: [42]
+      epochs: 1
+      limit: 100
+      include:
+        full_model: true
+        baselines:
+          - text_only_encoder
+        ablations:
+          - w_o_retrieval
+          - w_o_task_aware_gate
+          - w_o_structured_auxiliary
+      audit_after_run: true
+      require_nonempty_metrics: true
+    core_1seed:
+      description: "Primary one-seed comparison across datasets."
+      datasets:
+        - harm_c
+        - harm_p
+        - facebook
+        - memotion
+      seeds: [42]
+      epochs: null
+      limit: null
+      include:
+        full_model: true
+        baselines:
+          - text_only_encoder
+          - image_only_clip
+          - clip_text_concat
+        ablations:
+          - w_o_retrieval
+          - w_o_support_verifier
+          - w_o_task_aware_gate
+          - w_o_structured_auxiliary
+      audit_after_run: true
+      require_nonempty_metrics: true
+    core_5seed:
+      description: "Primary multi-seed result suite."
+      datasets:
+        - harm_c
+        - harm_p
+        - facebook
+        - memotion
+      seeds: [42, 52, 123, 777, 2026]
+      epochs: null
+      limit: null
+      include:
+        full_model: true
+        baselines:
+          - text_only_encoder
+          - image_only_clip
+          - clip_text_concat
+        ablations:
+          - w_o_retrieval
+          - w_o_support_verifier
+          - w_o_task_aware_gate
+          - w_o_structured_auxiliary
+      audit_after_run: true
+      require_nonempty_metrics: true
+    knowledge_1seed:
+      description: "Knowledge source comparison."
+      datasets:
+        - harm_c
+        - harm_p
+      seeds: [42]
+      epochs: null
+      limit: null
+      include:
+        knowledge_modes:
+          - no_knowledge
+          - retrieved_only
+          - generated_retrieved
+          - verified
+      audit_after_run: true
 
 debug:
   verbose_outputs: false

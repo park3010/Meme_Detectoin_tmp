@@ -7,6 +7,7 @@ import math
 from pathlib import Path
 from typing import Any
 
+from experiments.ablation_configs import component_state_for_ablation, get_ablation_contract
 from utils.io import read_jsonl
 
 
@@ -71,11 +72,23 @@ def audit_run_artifacts(
         "errors": [],
     }
 
-    training_rows = _load_records(paths["training_log"], result, "training log", strict)
+    manifest = _load_manifest(paths["manifest"], result)
+    result["manifest"] = manifest
+    require_training_log = _requires_training_log(manifest)
+    training_rows = _load_records(paths["training_log"], result, "training log", strict and require_training_log)
     prediction_rows = _load_records(paths["predictions"], result, "predictions", strict)
     metrics_obj = _load_object(paths["metrics"], result, "metrics", strict)
 
-    result["training_log"] = audit_training_log(training_rows, result, strict=strict)
+    expected_losses = set(manifest.get("expected_active_logits_losses") or EXPECTED_LOGITS_LOSSES)
+    disabled_losses = set(manifest.get("expected_disabled_losses") or [])
+    result["training_log"] = audit_training_log(
+        training_rows,
+        result,
+        strict=strict,
+        expected_logits_losses=expected_losses,
+        expected_disabled_losses=disabled_losses,
+        require_training_log=require_training_log,
+    )
     result["predictions"] = audit_predictions(
         prediction_rows,
         result,
@@ -89,6 +102,13 @@ def audit_run_artifacts(
         result,
         require_nonempty_metrics=require_nonempty_metrics,
         allow_empty_split=allow_empty_split,
+    )
+    result["ablation_contract"] = audit_ablation_contract(
+        manifest,
+        training_rows,
+        prediction_rows,
+        result,
+        strict=strict,
     )
     result["passed"] = not result["errors"]
     result["status"] = "pass" if result["passed"] and not result["warnings"] else "warning" if result["passed"] else "fail"
@@ -113,6 +133,7 @@ def discover_artifacts(
             ["final_predictions.jsonl", "predictions.jsonl", "final_predictions.json", "predictions.json"],
         ),
         "metrics": _resolve_artifact(root, metrics, ["metrics.json", "final_metrics.json", "metrics.jsonl"]),
+        "manifest": _resolve_artifact(root, None, ["run_manifest.json"]),
     }
 
 
@@ -121,12 +142,21 @@ def audit_training_log(
     result: dict[str, Any],
     *,
     strict: bool,
+    expected_logits_losses: set[str] | None = None,
+    expected_disabled_losses: set[str] | None = None,
+    require_training_log: bool = True,
 ) -> dict[str, Any]:
     """Audit epoch logs, loss provenance, active losses, and gradient status."""
 
+    expected_logits_losses = expected_logits_losses or set(EXPECTED_LOGITS_LOSSES)
+    expected_disabled_losses = expected_disabled_losses or set()
     if not rows:
-        _issue(result, "Training log is absent or empty.", strict=strict, critical=True)
-        return {"epoch_count": 0, "expected_logits_losses_found": []}
+        _issue(result, "Training log is absent or empty.", strict=strict, critical=require_training_log)
+        return {
+            "epoch_count": 0,
+            "expected_logits_losses_found": [],
+            "training_log_required": require_training_log,
+        }
 
     active_logits = {
         str(item)
@@ -149,7 +179,7 @@ def audit_training_log(
                 if isinstance(details, dict):
                     provenance_by_loss[str(name)] = details
 
-    missing_losses = sorted(EXPECTED_LOGITS_LOSSES - active_logits)
+    missing_losses = sorted(expected_logits_losses - active_logits)
     if missing_losses:
         _issue(
             result,
@@ -159,7 +189,11 @@ def audit_training_log(
         )
 
     aux_checks: dict[str, Any] = {}
+    aux_checks: dict[str, Any] = {}
     for name in ["target_presence", "tactic_multimodal_relation"]:
+        if name in expected_disabled_losses:
+            aux_checks[name] = {"disabled_by_contract": True}
+            continue
         details = provenance_by_loss.get(name, {})
         provenance = str(details.get("provenance", ""))
         mean_requires_grad = _number(details.get("mean_requires_grad"))
@@ -210,10 +244,84 @@ def audit_training_log(
         "latest_epoch": latest.get("epoch"),
         "active_logits_losses": sorted(active_logits),
         "active_proxy_losses": sorted(active_proxy),
-        "expected_logits_losses_found": sorted(EXPECTED_LOGITS_LOSSES & active_logits),
+        "expected_logits_losses": sorted(expected_logits_losses),
+        "expected_disabled_losses": sorted(expected_disabled_losses),
+        "expected_logits_losses_found": sorted(expected_logits_losses & active_logits),
         "missing_expected_logits_losses": missing_losses,
         "auxiliary_loss_checks": aux_checks,
         "split_sizes": split_sizes,
+        "training_log_required": require_training_log,
+    }
+
+
+def audit_ablation_contract(
+    manifest: dict[str, Any],
+    training_rows: list[dict[str, Any]],
+    prediction_rows: list[dict[str, Any]],
+    result: dict[str, Any],
+    *,
+    strict: bool,
+) -> dict[str, Any]:
+    """Validate ablation-specific semantic expectations from the run manifest."""
+
+    contract_obj = manifest.get("ablation_contract") if isinstance(manifest, dict) else None
+    if not isinstance(contract_obj, dict):
+        return {"ablation_contract_present": False, "ablation_contract_passed": True}
+
+    name = str(contract_obj.get("name", ""))
+    try:
+        expected_contract = get_ablation_contract(name)
+    except ValueError:
+        _issue(result, f"Manifest references unknown ablation contract: {name}.", strict=strict, critical=True)
+        return {"ablation_contract_present": True, "ablation_contract_passed": False}
+
+    failures: list[str] = []
+    component_state = manifest.get("component_state", {})
+    expected_state = component_state if isinstance(component_state, dict) else {}
+    canonical_state = _as_bool_dict(component_state_for_ablation(name))
+    for key, expected in canonical_state.items():
+        if expected_state.get(key) is not expected:
+            failures.append(f"component_state.{key} expected {expected}")
+
+    latest = training_rows[-1] if training_rows else {}
+    active_logits = set(str(item) for value in _find_values(latest, "active_logits_losses") for item in _as_list(value))
+    expected_losses = set(manifest.get("expected_active_logits_losses") or expected_contract.expected_active_logits_losses)
+    if training_rows and active_logits and active_logits != expected_losses:
+        failures.append(f"active logits losses {sorted(active_logits)} != expected {sorted(expected_losses)}")
+
+    if name == "w_o_retrieval":
+        for row in prediction_rows[:5]:
+            stage_d = ((row.get("stage_metadata") or {}).get("stage_d") or {})
+            if _integer(stage_d.get("verified_knowledge_count")) not in {0, None}:
+                failures.append("w_o_retrieval has nonzero Stage D verified_knowledge_count")
+                break
+    if name == "w_o_context_generation":
+        for row in prediction_rows[:5]:
+            stage_b = ((row.get("stage_metadata") or {}).get("stage_b") or {})
+            if _integer(stage_b.get("generated_count")) not in {0, None}:
+                failures.append("w_o_context_generation has nonzero Stage B generated_count")
+                break
+    if name == "w_o_task_aware_gate":
+        for row in prediction_rows[:5]:
+            stage_d = ((row.get("stage_metadata") or {}).get("stage_d") or {})
+            if "shared_gate" not in str(stage_d.get("gate_mode", "")):
+                failures.append("w_o_task_aware_gate did not report shared gate mode")
+                break
+    if name == "w_o_structured_auxiliary":
+        if sorted(expected_losses) != ["harmfulness", "intent_primary", "tactic_rhetorical", "target_granularity"]:
+            failures.append("w_o_structured_auxiliary expected active losses are not the four primary logits losses")
+        disabled = set(manifest.get("expected_disabled_losses") or [])
+        if {"target_presence", "tactic_multimodal_relation"} - disabled:
+            failures.append("w_o_structured_auxiliary disabled auxiliary losses are missing")
+
+    for failure in failures:
+        _issue(result, failure, strict=strict, critical=True)
+    return {
+        "ablation_contract_present": True,
+        "name": name,
+        "ablation_contract_passed": not failures,
+        "failures": failures,
+        "component_state": component_state,
     }
 
 
@@ -432,6 +540,8 @@ def write_audit_report(result: dict[str, Any], path: str | Path) -> Path:
     metrics = result.get("metrics", {})
     artifacts = result.get("artifacts", {})
     aux = training.get("auxiliary_loss_checks", {})
+    manifest = result.get("manifest", {}) or {}
+    contract = result.get("ablation_contract", {}) or {}
 
     lines = [
         "# Pipeline Audit Report",
@@ -441,6 +551,18 @@ def write_audit_report(result: dict[str, Any], path: str | Path) -> Path:
         "",
         "## Artifact discovery",
         *[f"- {name}: `{value}`" if value else f"- {name}: missing" for name, value in artifacts.items()],
+        "",
+        "## Run manifest",
+        f"- Schema: `{manifest.get('schema')}`",
+        f"- Run kind: `{manifest.get('run_kind')}`",
+        f"- Run name: `{manifest.get('run_name')}`",
+        f"- Expected knowledge mode: `{manifest.get('expected_knowledge_mode')}`",
+        f"- Expected evidence mode: `{manifest.get('expected_evidence_mode')}`",
+        "",
+        "## Ablation contract",
+        f"- Present: `{contract.get('ablation_contract_present', False)}`",
+        f"- Passed: `{contract.get('ablation_contract_passed', True)}`",
+        f"- Name: `{contract.get('name')}`",
         "",
         "## Training log audit",
         f"- Epochs: {training.get('epoch_count', 0)}",
@@ -488,14 +610,18 @@ def format_audit_summary(result: dict[str, Any]) -> str:
     training = result.get("training_log", {})
     predictions = result.get("predictions", {})
     metrics = result.get("metrics", {})
+    expected_count = len(training.get("expected_logits_losses", EXPECTED_LOGITS_LOSSES))
     lines = [
         f"Pipeline audit: {str(result.get('status', 'unknown')).upper()}",
         f"Run root: {result.get('run_root')}",
         f"Training epochs: {training.get('epoch_count', 0)}",
-        f"Expected logits losses: {len(training.get('expected_logits_losses_found', []))}/{len(EXPECTED_LOGITS_LOSSES)}",
+        f"Expected logits losses: {len(training.get('expected_logits_losses_found', []))}/{expected_count}",
         f"Prediction contract: {predictions.get('contract_pass_count', 0)}/{predictions.get('audited_count', 0)}",
         f"Metrics usable: {metrics.get('metrics_usable', False)}",
     ]
+    contract = result.get("ablation_contract", {})
+    if contract.get("ablation_contract_present"):
+        lines.append(f"Ablation contract: {contract.get('name')} passed={contract.get('ablation_contract_passed')}")
     if result.get("warnings"):
         lines.append(f"Warnings: {len(result['warnings'])}")
     if result.get("errors"):
@@ -554,6 +680,24 @@ def _load_object(
     if len(rows) == 1:
         return rows[0]
     return {"records": rows}
+
+
+def _load_manifest(path: Path | None, result: dict[str, Any]) -> dict[str, Any]:
+    if path is None or not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        _issue(result, f"Could not read run manifest {path}: {exc}", strict=False, critical=False)
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _requires_training_log(manifest: dict[str, Any]) -> bool:
+    run_kind = manifest.get("run_kind")
+    if run_kind in {"ablation", "fusion", "knowledge_comparison"}:
+        return manifest.get("training_strategy") != "evaluation_time_variant"
+    return run_kind in {None, "", "ours_full"}
 
 
 def _issue(
@@ -647,6 +791,12 @@ def _as_list(value: Any) -> list[Any]:
     if isinstance(value, (list, tuple, set)):
         return list(value)
     return [value]
+
+
+def _as_bool_dict(value: Any) -> dict[str, bool]:
+    if not isinstance(value, dict):
+        return {}
+    return {str(key): bool(current) for key, current in value.items()}
 
 
 def _first_dict(values: list[Any]) -> dict[str, Any]:

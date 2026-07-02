@@ -9,10 +9,18 @@ from typing import Any, Callable
 import torch
 
 from dataset import MemeDataset
-from experiments.ablation_configs import ABLATION_MODES, FUSION_MODES, AblationConfig, get_ablation_config
+from experiments.ablation_configs import (
+    ABLATION_MODES,
+    FUSION_MODES,
+    AblationConfig,
+    component_state_for_ablation,
+    get_ablation_config,
+    get_ablation_contract,
+)
 from experiments.evaluation import compute_harmfulness_metrics
 from experiments.prediction_io import save_predictions_and_metrics, stage_outputs_to_prediction_record
 from experiments.progress import progress_iter
+from experiments.run_manifest import build_run_manifest, current_command, write_run_manifest
 from experiments.splits import build_splits_for_dataset, label_to_int, load_split_file, save_splits, split_samples
 from experiments.evaluation import evaluate_structured_predictions
 from module.runner import HarmfulMemePipeline
@@ -32,6 +40,8 @@ def run_ablation_experiment(
     limit: int | None = None,
     disable_tqdm: bool = False,
     print_components: bool = False,
+    suite_name: str | None = None,
+    requested_command: str | None = None,
 ) -> dict[str, Any]:
     """Run one stage-wise ablation on the test split."""
 
@@ -50,6 +60,22 @@ def run_ablation_experiment(
     )
     output_dir = Path(output_root) / "predictions" / dataset_name / f"ablation_{ablation_name}" / str(seed)
     save_predictions_and_metrics(output_dir, predictions, metrics)
+    write_run_manifest(
+        output_dir,
+        build_run_manifest(
+            suite_name=suite_name,
+            run_kind="ablation",
+            run_name=f"ablation_{config.name}",
+            dataset=dataset_name,
+            seed=seed,
+            config_path=config_path,
+            split_file=_resolved_split_path(dataset_name, seed, split_file, output_root),
+            requested_command=requested_command or current_command(),
+            ablation_name=config.name,
+            component_state=component_state_for_ablation(config.name),
+            extra={"ablation_name": config.name, "training_strategy": "evaluation_time_variant"},
+        ),
+    )
     append_metric_row(Path(output_root) / "metrics" / "ablation.csv", _ablation_metric_row(dataset_name, seed, ablation_name, metrics))
     return metrics
 
@@ -64,6 +90,8 @@ def run_fusion_experiment(
     limit: int | None = None,
     disable_tqdm: bool = False,
     print_components: bool = False,
+    suite_name: str | None = None,
+    requested_command: str | None = None,
 ) -> dict[str, Any]:
     """Run one fusion/gating comparison mode."""
 
@@ -84,6 +112,24 @@ def run_fusion_experiment(
     )
     output_dir = Path(output_root) / "predictions" / dataset_name / f"fusion_{fusion_mode}" / str(seed)
     save_predictions_and_metrics(output_dir, predictions, metrics)
+    write_run_manifest(
+        output_dir,
+        build_run_manifest(
+            suite_name=suite_name,
+            run_kind="fusion",
+            run_name=f"fusion_{fusion_mode}",
+            dataset=dataset_name,
+            seed=seed,
+            config_path=config_path,
+            split_file=_resolved_split_path(dataset_name, seed, split_file, output_root),
+            requested_command=requested_command or current_command(),
+            expected_active_logits_losses=[],
+            expected_disabled_losses=[],
+            expected_knowledge_mode="verified",
+            expected_evidence_mode=f"fusion_{fusion_mode}",
+            extra={"fusion_mode": fusion_mode},
+        ),
+    )
     append_metric_row(Path(output_root) / "metrics" / "fusion_comparison.csv", _fusion_metric_row(dataset_name, seed, fusion_mode, metrics))
     write_jsonl(Path(output_root) / "analysis" / "gate_summary.jsonl", analysis, compact_tensors=True)
     return metrics
@@ -130,13 +176,22 @@ def run_framework_variant(
     desc = ablation.name if ablation else f"knowledge {knowledge_mode}"
     for sample in progress_iter(test_samples, desc=desc, disable=disable_tqdm, leave=False):
         outputs = execute_variant_pipeline(pipeline, sample, ablation=ablation, knowledge_mode=knowledge_mode, fusion_mode=fusion_mode)
+        extra = {
+            "ablation": ablation.name if ablation else None,
+            "knowledge_mode": knowledge_mode,
+            "fusion_mode": fusion_mode,
+        }
+        if ablation:
+            contract = get_ablation_contract(ablation.name)
+            extra["ablation_contract"] = contract.to_dict()
+            extra["component_state"] = component_state_for_ablation(ablation.name)
         predictions.append(
             stage_outputs_to_prediction_record(
                 sample,
                 outputs,
                 model_name=model_name,
                 seed=seed,
-                extra={"ablation": ablation.name if ablation else None, "knowledge_mode": knowledge_mode, "fusion_mode": fusion_mode},
+                extra=extra,
             )
         )
         analysis.append(analysis_builder(sample, outputs))
@@ -184,8 +239,10 @@ def execute_variant_pipeline(
 
     stage_d = pipeline.stage_d(stage_a, stage_c)
     _apply_fusion_mode(pipeline, stage_d, fusion_mode)
-    if ablation.disable_task_aware_gate or fusion_mode in {"shared_gate", "concat_mlp", "mean_pooling", "cross_attention"}:
-        _disable_task_aware_gate(stage_d)
+    if ablation.disable_task_aware_gate:
+        _disable_task_aware_gate(stage_d, gate_mode="shared_gate_ablation")
+    elif fusion_mode in {"shared_gate", "concat_mlp", "mean_pooling", "cross_attention"}:
+        _disable_task_aware_gate(stage_d, gate_mode=fusion_mode)
     stage_e = pipeline.stage_e(stage_a, stage_c, stage_d)
     if ablation.label_only_no_evidence:
         _label_only(stage_e)
@@ -267,7 +324,23 @@ def _load_or_create_splits(dataset_name, dataset, seed, cfg, split_file, output_
 
 
 def _empty_stage_b(stage_a):
-    return StageBOutput(stage_a.sample_id, stage_a.dataset_name, QueryBundle(""), [], [], torch.zeros(0, 256), [], StageBMetadata(0, 0, 0, 0))
+    return StageBOutput(
+        stage_a.sample_id,
+        stage_a.dataset_name,
+        QueryBundle(""),
+        [],
+        [],
+        torch.zeros(0, 256),
+        [],
+        StageBMetadata(
+            0,
+            0,
+            0,
+            0,
+            retrieval_stats={"retrieval_enabled": False, "context_generation_enabled": False},
+            query_types={},
+        ),
+    )
 
 
 def _empty_stage_c(stage_a):
@@ -345,11 +418,15 @@ def _remove_generated_candidates(stage_b) -> None:
     kept = [candidate for candidate in stage_b.knowledge_candidates if candidate.candidate_type != "generated_hypothesis"]
     _reset_candidates(stage_b, kept)
     stage_b.generated_hypotheses = []
+    stage_b.metadata.generated_count = 0
+    stage_b.metadata.retrieval_stats["context_generation_enabled"] = False
 
 
 def _keep_generated_candidates(stage_b) -> None:
     kept = [candidate for candidate in stage_b.knowledge_candidates if candidate.candidate_type == "generated_hypothesis"]
     _reset_candidates(stage_b, kept)
+    stage_b.metadata.retrieved_count = 0
+    stage_b.metadata.retrieval_stats["retrieved_candidates_kept"] = False
 
 
 def _reset_candidates(stage_b, kept) -> None:
@@ -397,13 +474,15 @@ def _apply_fusion_mode(pipeline: HarmfulMemePipeline, stage_d, fusion_mode: str)
     stage_d.metadata.gate_mode = fusion_mode
 
 
-def _disable_task_aware_gate(stage_d) -> None:
+def _disable_task_aware_gate(stage_d, gate_mode: str = "shared_gate_ablation") -> None:
     task_gate = stage_d.gates.get("task_level")
     if isinstance(task_gate, torch.Tensor) and task_gate.numel():
         shared = task_gate.mean().repeat(3)
         stage_d.gates["task_level"] = shared
         for key in ["target", "intent", "tactic"]:
             stage_d.task_latents[key] = stage_d.shared_reasoning_state * shared.mean()
+    stage_d.metadata.gate_mode = gate_mode
+    stage_d.metadata.analysis_hooks["task_aware_gate_enabled"] = 0.0
 
 
 def _label_only(stage_e) -> None:
@@ -411,6 +490,12 @@ def _label_only(stage_e) -> None:
     stage_e.rationale = ""
     stage_e.structured_prediction["supporting_evidence"] = stage_e.supporting_evidence
     stage_e.structured_prediction["rationale"] = ""
+
+
+def _resolved_split_path(dataset_name: str, seed: int, split_file: str | None, output_root: str) -> Path:
+    if split_file:
+        return Path(split_file)
+    return Path(output_root) / "splits" / dataset_name / f"seed_{seed}.json"
 
 
 def _ablation_metric_row(dataset, seed, ablation, metrics):

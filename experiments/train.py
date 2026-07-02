@@ -17,7 +17,9 @@ from experiments.early_stopping import EarlyStopping, metric_from_validation, pr
 from experiments.evaluation import compute_harmfulness_metrics, evaluate_structured_predictions
 from experiments.prediction_io import save_predictions_and_metrics, stage_outputs_to_prediction_record
 from experiments.progress import progress_iter
+from experiments.run_manifest import build_run_manifest, current_command, write_run_manifest
 from experiments.splits import build_splits_for_dataset, label_to_int, load_split_file, save_splits, split_samples
+from experiments.ablation_configs import LOGITS_LOSSES, STRUCTURED_AUXILIARY_LOSSES, default_component_state
 from module.baseline import CLIPTextConcatClassifier, ImageOnlyCLIPClassifier, TextOnlyEncoderClassifier
 from module.losses import StructuredMemeLoss, extract_supervision_from_annotation
 from module.runner import HarmfulMemePipeline
@@ -53,6 +55,7 @@ class OursRunConfig:
     limit: int | None = None
     freeze_backbones: bool = True
     train_relevance_mlp: bool = True
+    harmfulness_only: bool = False
     structured_auxiliary: bool = True
     normalized_root: str = "dataset/annotation_normalized"
     label_set: str = "full"
@@ -60,6 +63,8 @@ class OursRunConfig:
     use_normalized_labels: bool = True
     require_normalized_label: bool = True
     use_sample_weight: bool = True
+    suite_name: str | None = None
+    requested_command: str | None = None
 
 
 def run_ours_experiment(config: OursRunConfig) -> dict[str, Any]:
@@ -126,11 +131,15 @@ def run_ours_experiment(config: OursRunConfig) -> dict[str, Any]:
             outputs = pipeline(sample)
             stage_e = outputs["stage_e"]
             supervision = extract_supervision_from_annotation(sample)
-            if not config.structured_auxiliary:
+            if config.harmfulness_only:
                 supervision = {
                     "harmfulness": supervision.get("harmfulness"),
                     "sample_weight": supervision.get("sample_weight", sample.get("sample_weight", 1.0)),
                 }
+            elif not config.structured_auxiliary:
+                supervision = dict(supervision)
+                supervision.pop("target_presence", None)
+                supervision.pop("tactic_multimodal_relation", None)
             losses = loss_fn(stage_e, supervision)
             for name, description in loss_fn.describe_losses(losses).items():
                 if name == "total":
@@ -257,6 +266,8 @@ def run_ours_experiment(config: OursRunConfig) -> dict[str, Any]:
     save_training_log(output_dir, training_log)
     metrics, predictions = evaluate_ours_pipeline(pipeline, materialized.get("test", []), config, device=device, desc="test")
     save_predictions_and_metrics(output_dir, predictions, metrics)
+    manifest = _ours_manifest(config)
+    write_run_manifest(output_dir, manifest)
     print(
         f"[early-stopping] {config.dataset_name}/{config.model_name}/seed={config.seed}: "
         f"best_epoch={stopper.best_epoch} best_{config.early_stop_metric}={stopper.best_metric} "
@@ -414,6 +425,8 @@ class BaselineRunConfig:
     use_normalized_labels: bool = False
     require_normalized_label: bool = True
     use_sample_weight: bool = False
+    suite_name: str | None = None
+    requested_command: str | None = None
 
 
 def run_baseline_experiment(config: BaselineRunConfig) -> dict[str, Any]:
@@ -544,6 +557,22 @@ def run_baseline_experiment(config: BaselineRunConfig) -> dict[str, Any]:
     save_training_log(output_dir, training_log)
     test_metrics, predictions = evaluate_model(model, materialized.get("test", []), config.batch_size, device, disable_tqdm=config.disable_tqdm, desc="test")
     save_baseline_outputs(config, model, predictions, test_metrics)
+    manifest = build_run_manifest(
+        suite_name=config.suite_name,
+        run_kind="baseline",
+        run_name=config.model_name,
+        dataset=config.dataset_name,
+        seed=config.seed,
+        config_path=config.config_path,
+        split_file=_resolved_split_path(config),
+        requested_command=config.requested_command or current_command(),
+        expected_active_logits_losses=[],
+        expected_disabled_losses=[],
+        expected_knowledge_mode="not_applicable",
+        expected_evidence_mode="baseline",
+        extra={"baseline_model": config.model_name},
+    )
+    write_run_manifest(Path(config.output_root) / "predictions" / config.dataset_name / config.model_name / str(config.seed), manifest)
     print(
         f"[early-stopping] {config.dataset_name}/{config.model_name}/seed={config.seed}: "
         f"best_epoch={stopper.best_epoch} best_{config.early_stop_metric}={stopper.best_metric} "
@@ -707,6 +736,48 @@ def _load_or_create_baseline_splits(config: BaselineRunConfig, dataset: Any) -> 
     )
     save_splits(splits, config.dataset_name, config.seed, output_root=Path(config.output_root) / "splits")
     return splits
+
+
+def _ours_manifest(config: OursRunConfig) -> dict[str, Any]:
+    component_state = default_component_state()
+    active_losses = list(LOGITS_LOSSES)
+    disabled_losses: list[str] = []
+    ablation_name = None
+    if config.harmfulness_only:
+        active_losses = ["harmfulness"]
+        disabled_losses = [name for name in LOGITS_LOSSES if name != "harmfulness"]
+    elif not config.structured_auxiliary:
+        component_state["stage_e_structured_auxiliary_enabled"] = False
+        active_losses = [name for name in active_losses if name not in STRUCTURED_AUXILIARY_LOSSES]
+        disabled_losses = list(STRUCTURED_AUXILIARY_LOSSES)
+        if config.model_name == "ablation_w_o_structured_auxiliary":
+            ablation_name = "w_o_structured_auxiliary"
+    return build_run_manifest(
+        suite_name=config.suite_name,
+        run_kind="ablation" if ablation_name else "ours_full",
+        run_name=config.model_name,
+        dataset=config.dataset_name,
+        seed=config.seed,
+        config_path=config.config_path,
+        split_file=_resolved_split_path(config),
+        requested_command=config.requested_command or current_command(),
+        ablation_name=ablation_name,
+        component_state=component_state,
+        expected_active_logits_losses=active_losses,
+        expected_disabled_losses=disabled_losses,
+        extra={
+            "freeze_backbones": config.freeze_backbones,
+            "train_relevance_mlp": config.train_relevance_mlp,
+            "harmfulness_only": config.harmfulness_only,
+            "structured_auxiliary": config.structured_auxiliary,
+        },
+    )
+
+
+def _resolved_split_path(config: OursRunConfig | BaselineRunConfig) -> Path:
+    if config.split_file:
+        return Path(config.split_file)
+    return Path(config.output_root) / "splits" / config.dataset_name / f"seed_{config.seed}.json"
 
 
 def _normalize_sample(sample: dict[str, Any]) -> dict[str, Any]:

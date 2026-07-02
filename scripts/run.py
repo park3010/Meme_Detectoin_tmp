@@ -12,6 +12,7 @@ from experiments.ablation_configs import ABLATION_MODES
 from experiments.ablation_runner import run_ablation_experiment, run_fusion_experiment
 from experiments.evaluation import evaluate_prediction_file
 from experiments.pipeline_audit import audit_run_artifacts, format_audit_summary, write_audit_report
+from experiments.experiment_suite import run_suite
 from experiments.splits import DEFAULT_SEEDS, normalize_dataset_names
 from experiments.train import BaselineRunConfig, OursRunConfig, run_baseline_experiment, run_ours_experiment
 from module.runner import PipelineRunner
@@ -80,6 +81,31 @@ def build_parser() -> argparse.ArgumentParser:
     audit.add_argument("--strict", action="store_true")
     audit.add_argument("--sample-limit", type=int, default=5)
     audit.set_defaults(func=_cmd_audit)
+
+    suite = subparsers.add_parser("suite", help="Plan and run a reproducible experiment suite.")
+    suite.add_argument("--suite", required=True)
+    suite.add_argument("--config", default=DEFAULT_CONFIG)
+    suite.add_argument("--dataset", nargs="+", default=None)
+    suite.add_argument("--seed", nargs="+", type=int, default=None)
+    suite.add_argument("--epochs", type=int, default=None)
+    suite.add_argument("--limit", type=int, default=None)
+    suite.add_argument("--device", default="cpu")
+    suite.add_argument("--output-root", default="result")
+    suite.add_argument("--split-file", default=None)
+    suite.add_argument("--dry-run", action="store_true")
+    suite.add_argument("--resume", action="store_true")
+    suite.add_argument("--skip-complete", action="store_true")
+    suite.add_argument("--audit-after-run", action="store_true")
+    suite.add_argument("--strict", action="store_true")
+    suite.add_argument("--require-nonempty-metrics", action="store_true")
+    suite.add_argument("--disable-tqdm", action="store_true")
+    suite.add_argument("--print-components", action="store_true")
+    suite.add_argument("--batch-size", type=int, default=16)
+    suite.add_argument("--lr", type=float, default=1e-4)
+    suite.add_argument("--patience", type=int, default=3)
+    suite.add_argument("--min-delta", type=float, default=0.0)
+    suite.add_argument("--early-stop-metric", default="val_macro_f1")
+    suite.set_defaults(func=_cmd_suite)
     return parser
 
 
@@ -171,6 +197,7 @@ def _cmd_train(args: argparse.Namespace) -> None:
                 limit=args.limit,
                 freeze_backbones=not args.unfreeze_backbones,
                 train_relevance_mlp=not args.no_relevance_mlp_training,
+                harmfulness_only=args.harmfulness_only,
                 structured_auxiliary=not args.harmfulness_only,
                 normalized_root=args.normalized_root,
                 label_set=args.label_set,
@@ -300,6 +327,12 @@ def _cmd_audit(args: argparse.Namespace) -> None:
         print(f"Report: {written}")
     print(format_audit_summary(result))
     if result["errors"]:
+        raise SystemExit(1)
+
+
+def _cmd_suite(args: argparse.Namespace) -> None:
+    result = run_suite(args)
+    if not args.dry_run and result.get("status") != "complete":
         raise SystemExit(1)
 
 

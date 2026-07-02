@@ -66,6 +66,107 @@ def test_empty_metrics_allowance_and_requirement(tmp_path: Path):
     assert any("Non-empty metrics were required" in error for error in required["errors"])
 
 
+def test_ablation_manifest_allows_structured_auxiliary_four_loss_contract(tmp_path: Path):
+    run_root = _write_artifacts(tmp_path, metrics={"accuracy": 1.0, "macro_f1": 1.0})
+    active_logits = ["harmfulness", "target_granularity", "intent_primary", "tactic_rhetorical"]
+    training_log = [
+        {
+            "epoch": 1,
+            "train_loss": 0.5,
+            "split_sizes": {"train": 4, "valid": 1, "test": 1},
+            "loss_components": {name: 0.1 for name in active_logits},
+            "loss_provenance": {
+                name: {"provenance": "logits", "differentiable_expected": True, "mean_requires_grad": 1.0}
+                for name in active_logits
+            },
+            "active_logits_losses": active_logits,
+            "active_proxy_losses": [],
+            "active_logits_loss_count": 4,
+            "active_proxy_loss_count": 0,
+            "val_accuracy": 1.0,
+            "val_macro_f1": 1.0,
+        }
+    ]
+    (run_root / "training_log.json").write_text(json.dumps(training_log), encoding="utf-8")
+    (run_root / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema": "experiment_run_manifest_v1",
+                "run_kind": "ablation",
+                "run_name": "ablation_w_o_structured_auxiliary",
+                "dataset": "harm_c",
+                "seed": 42,
+                "ablation_contract": {"name": "w_o_structured_auxiliary"},
+                "component_state": {
+                    "stage_a_roi_enabled": True,
+                    "stage_a_incongruity_enabled": True,
+                    "stage_b_retrieval_enabled": True,
+                    "stage_b_context_generation_enabled": True,
+                    "stage_c_relevance_enabled": True,
+                    "stage_c_support_verifier_enabled": True,
+                    "stage_c_validity_enabled": True,
+                    "stage_d_task_aware_gate_enabled": True,
+                    "stage_e_structured_auxiliary_enabled": False,
+                },
+                "expected_active_logits_losses": active_logits,
+                "expected_disabled_losses": ["target_presence", "tactic_multimodal_relation"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = audit_run_artifacts(run_root, strict=True, require_nonempty_metrics=True)
+
+    assert result["passed"] is True
+    assert result["training_log"]["missing_expected_logits_losses"] == []
+    assert result["training_log"]["expected_disabled_losses"] == ["tactic_multimodal_relation", "target_presence"]
+    assert result["ablation_contract"]["ablation_contract_passed"] is True
+
+
+def test_evaluation_time_ablation_manifest_does_not_require_training_log(tmp_path: Path):
+    run_root = _write_artifacts(tmp_path, metrics={"accuracy": 1.0, "macro_f1": 1.0})
+    (run_root / "training_log.json").unlink()
+    (run_root / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema": "experiment_run_manifest_v1",
+                "run_kind": "ablation",
+                "run_name": "ablation_w_o_retrieval",
+                "training_strategy": "evaluation_time_variant",
+                "dataset": "harm_c",
+                "seed": 42,
+                "ablation_contract": {"name": "w_o_retrieval"},
+                "component_state": {
+                    "stage_a_roi_enabled": True,
+                    "stage_a_incongruity_enabled": True,
+                    "stage_b_retrieval_enabled": False,
+                    "stage_b_context_generation_enabled": False,
+                    "stage_c_relevance_enabled": True,
+                    "stage_c_support_verifier_enabled": True,
+                    "stage_c_validity_enabled": True,
+                    "stage_d_task_aware_gate_enabled": True,
+                    "stage_e_structured_auxiliary_enabled": True,
+                },
+                "expected_active_logits_losses": [
+                    "harmfulness",
+                    "target_granularity",
+                    "target_presence",
+                    "intent_primary",
+                    "tactic_rhetorical",
+                    "tactic_multimodal_relation",
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = audit_run_artifacts(run_root, strict=True)
+
+    assert result["passed"] is True
+    assert result["training_log"]["training_log_required"] is False
+    assert result["ablation_contract"]["ablation_contract_passed"] is True
+
+
 def _write_artifacts(
     tmp_path: Path,
     *,

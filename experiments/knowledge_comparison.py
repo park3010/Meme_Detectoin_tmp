@@ -8,6 +8,7 @@ from typing import Any
 from experiments.ablation_configs import KNOWLEDGE_MODES
 from experiments.ablation_runner import append_metric_row, knowledge_analysis_record, run_framework_variant
 from experiments.prediction_io import save_predictions_and_metrics
+from experiments.run_manifest import build_run_manifest, current_command, write_run_manifest
 from utils.io import write_jsonl
 
 
@@ -21,6 +22,8 @@ def run_knowledge_comparison(
     limit: int | None = None,
     disable_tqdm: bool = False,
     print_components: bool = False,
+    suite_name: str | None = None,
+    requested_command: str | None = None,
 ) -> dict[str, Any]:
     """Run one knowledge-source mode and save predictions, metrics, and examples."""
 
@@ -43,6 +46,24 @@ def run_knowledge_comparison(
     metrics.update(_knowledge_summary(analysis))
     output_dir = Path(output_root) / "predictions" / dataset_name / f"knowledge_{mode}" / str(seed)
     save_predictions_and_metrics(output_dir, predictions, metrics)
+    write_run_manifest(
+        output_dir,
+        build_run_manifest(
+            suite_name=suite_name,
+            run_kind="knowledge_comparison",
+            run_name=f"knowledge_{mode}",
+            dataset=dataset_name,
+            seed=seed,
+            config_path=config_path,
+            split_file=Path(split_file) if split_file else Path(output_root) / "splits" / dataset_name / f"seed_{seed}.json",
+            requested_command=requested_command or current_command(),
+            expected_active_logits_losses=[],
+            expected_disabled_losses=[],
+            expected_knowledge_mode=mode,
+            expected_evidence_mode=f"knowledge_{mode}",
+            extra={"knowledge_mode": mode},
+        ),
+    )
     append_metric_row(Path(output_root) / "metrics" / "knowledge_comparison.csv", _metric_row(dataset_name, seed, mode, metrics))
     write_jsonl(Path(output_root) / "analysis" / "knowledge_comparison_examples.jsonl", analysis, compact_tensors=True)
     return metrics
