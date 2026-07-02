@@ -97,10 +97,31 @@ class StageAOutput:
 class GlobalVisualEncoder(nn.Module):
     """Encode image-level and coarse patch-level visual evidence."""
 
-    def __init__(self, hidden_dim: int = 256, prefer_pretrained: bool = False, model_name: str = "ViT-B-32", device: str = "cpu") -> None:
+    def __init__(
+        self,
+        hidden_dim: int = 256,
+        prefer_pretrained: bool = False,
+        model_name: str = "ViT-B-32",
+        device: str = "cpu",
+        pretrained_tag: str | None = None,
+        checkpoint_path: str | Path | None = None,
+        cache_dir: str | Path | None = None,
+        local_files_only: bool = True,
+        allow_download: bool = False,
+    ) -> None:
         super().__init__()
         self.hidden_dim = hidden_dim
-        self.clip = CLIPWrapper(hidden_dim=hidden_dim, prefer_pretrained=prefer_pretrained, model_name=model_name, device=device)
+        self.clip = CLIPWrapper(
+            hidden_dim=hidden_dim,
+            prefer_pretrained=prefer_pretrained,
+            model_name=model_name,
+            device=device,
+            pretrained_tag=pretrained_tag,
+            checkpoint_path=checkpoint_path,
+            cache_dir=cache_dir,
+            local_files_only=local_files_only,
+            allow_download=allow_download,
+        )
 
     def forward(self, image_path: str | Path | None) -> tuple[torch.Tensor, torch.Tensor]:
         """Return global image embedding and four coarse patch tokens."""
@@ -122,6 +143,10 @@ class TextSemanticEncoder(nn.Module):
         model_name: str = "microsoft/deberta-v3-base",
         max_tokens: int = 64,
         device: str = "cpu",
+        checkpoint_path: str | Path | None = None,
+        cache_dir: str | Path | None = None,
+        local_files_only: bool = True,
+        allow_download: bool = False,
     ) -> None:
         super().__init__()
         self.encoder = TextEncoderWrapper(
@@ -130,6 +155,10 @@ class TextSemanticEncoder(nn.Module):
             model_name=model_name,
             max_tokens=max_tokens,
             device=device,
+            checkpoint_path=checkpoint_path,
+            cache_dir=cache_dir,
+            local_files_only=local_files_only,
+            allow_download=allow_download,
         )
 
     def forward(self, text: str) -> tuple[torch.Tensor, torch.Tensor, list[str]]:
@@ -147,11 +176,27 @@ class LocalObjectSymbolExtractor(nn.Module):
         max_rois: int = 3,
         prefer_pretrained_clip: bool = False,
         device: str = "cpu",
+        clip_model_name: str = "ViT-B-32",
+        pretrained_tag: str | None = None,
+        checkpoint_path: str | Path | None = None,
+        cache_dir: str | Path | None = None,
+        local_files_only: bool = True,
+        allow_download: bool = False,
     ) -> None:
         super().__init__()
         self.hidden_dim = hidden_dim
         self.detector = DetectorAdapter(mode=detector_mode, max_rois=max_rois)
-        self.roi_encoder = CLIPWrapper(hidden_dim=hidden_dim, prefer_pretrained=prefer_pretrained_clip, device=device)
+        self.roi_encoder = CLIPWrapper(
+            hidden_dim=hidden_dim,
+            prefer_pretrained=prefer_pretrained_clip,
+            model_name=clip_model_name,
+            device=device,
+            pretrained_tag=pretrained_tag,
+            checkpoint_path=checkpoint_path,
+            cache_dir=cache_dir,
+            local_files_only=local_files_only,
+            allow_download=allow_download,
+        )
 
     def forward(self, image_path: str | Path | None, ocr_text: str) -> tuple[list[Detection], torch.Tensor, list[dict[str, Any]]]:
         """Return detections, ROI tokens, and serializable metadata."""
@@ -325,17 +370,52 @@ class InternalEvidenceExtractor(nn.Module):
         text_model_name: str = "microsoft/deberta-v3-base",
         detector_mode: str = "heuristic",
         device: str = "cpu",
+        clip_pretrained_tag: str | None = None,
+        clip_checkpoint_path: str | Path | None = None,
+        clip_cache_dir: str | Path | None = None,
+        clip_local_files_only: bool = True,
+        clip_allow_download: bool = False,
+        text_checkpoint_path: str | Path | None = None,
+        text_cache_dir: str | Path | None = None,
+        text_local_files_only: bool = True,
+        text_allow_download: bool = False,
     ) -> None:
         super().__init__()
         self.hidden_dim = hidden_dim
-        self.visual_encoder = GlobalVisualEncoder(hidden_dim, prefer_pretrained_clip, model_name=clip_model_name, device=device)
-        self.text_encoder = TextSemanticEncoder(hidden_dim, prefer_transformers, model_name=text_model_name, max_tokens=max_text_tokens, device=device)
+        self.visual_encoder = GlobalVisualEncoder(
+            hidden_dim,
+            prefer_pretrained_clip,
+            model_name=clip_model_name,
+            device=device,
+            pretrained_tag=clip_pretrained_tag,
+            checkpoint_path=clip_checkpoint_path,
+            cache_dir=clip_cache_dir,
+            local_files_only=clip_local_files_only,
+            allow_download=clip_allow_download,
+        )
+        self.text_encoder = TextSemanticEncoder(
+            hidden_dim,
+            prefer_transformers,
+            model_name=text_model_name,
+            max_tokens=max_text_tokens,
+            device=device,
+            checkpoint_path=text_checkpoint_path,
+            cache_dir=text_cache_dir,
+            local_files_only=text_local_files_only,
+            allow_download=text_allow_download,
+        )
         self.local_extractor = LocalObjectSymbolExtractor(
             hidden_dim=hidden_dim,
             detector_mode=detector_mode,
             max_rois=max_rois,
             prefer_pretrained_clip=prefer_pretrained_clip,
             device=device,
+            clip_model_name=clip_model_name,
+            pretrained_tag=clip_pretrained_tag,
+            checkpoint_path=clip_checkpoint_path,
+            cache_dir=clip_cache_dir,
+            local_files_only=clip_local_files_only,
+            allow_download=clip_allow_download,
         )
         self.incongruity = CrossModalIncongruityAnalyzer(hidden_dim)
 

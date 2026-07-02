@@ -37,9 +37,18 @@ backbone:
   clip:
     prefer_pretrained: true
     model_name: ViT-B-32
+    pretrained_tag: null
+    checkpoint_path: null
+    cache_dir: null
+    local_files_only: true
+    allow_download: false
   text:
     prefer_transformers: true
     model_name: microsoft/deberta-v3-base
+    checkpoint_path: null
+    cache_dir: null
+    local_files_only: true
+    allow_download: false
   detector:
     mode: heuristic
   retriever:
@@ -205,3 +214,87 @@ experiments:
 
 debug:
   verbose_outputs: false
+
+preflight:
+  schema_version: experiment_preflight_v1
+  profiles:
+    smoke:
+      description: "Offline structural validation. Fallback encoders are allowed."
+      require_pretrained_vision: false
+      require_pretrained_text: false
+      forbid_fallback_backbones: false
+      require_local_assets: false
+      require_retrieval_corpus: false
+      require_metric_eligibility: false
+      create_missing_splits: true
+      probe_pipeline: false
+    main_experiment:
+      description: "Paper-quality experimental readiness."
+      require_pretrained_vision: true
+      require_pretrained_text: true
+      forbid_fallback_backbones: true
+      require_local_assets: true
+      require_retrieval_corpus: true
+      require_metric_eligibility: true
+      create_missing_splits: true
+      probe_pipeline: false
+  eligibility:
+    fields:
+      - harmfulness
+      - target_presence
+      - target_granularity
+      - intent_primary
+      - tactic_rhetorical
+      - tactic_multimodal_relation
+    hard_min_train_labeled_samples: 1
+    hard_min_valid_labeled_samples: 1
+    hard_min_test_labeled_samples: 1
+    hard_min_eval_classes: 2
+    advisory_min_train_labeled_samples: 20
+    advisory_min_valid_labeled_samples: 10
+    advisory_min_test_labeled_samples: 10
+    advisory_min_samples_per_present_class: 2
+  metric_contract:
+    schema_version: structured_metric_contract_v1
+    harmfulness:
+      task_type: single_label
+      primary_metric: macro_f1
+      secondary_metrics: [accuracy, auroc, precision, recall]
+    target_presence:
+      task_type: single_label
+      primary_metric: macro_f1
+    target_granularity:
+      task_type: single_label
+      primary_metric: macro_f1
+    intent_primary:
+      task_type: single_label
+      primary_metric: macro_f1
+    tactic_multimodal_relation:
+      task_type: single_label
+      primary_metric: macro_f1
+    tactic_rhetorical:
+      task_type: multilabel
+      primary_metric: macro_f1
+      prediction_source: logits_only
+      rendered_label_field_forbidden_for_metric: true
+      threshold_policy: validation_grid_search
+      threshold_candidates:
+        - 0.05
+        - 0.10
+        - 0.15
+        - 0.20
+        - 0.25
+        - 0.30
+        - 0.35
+        - 0.40
+        - 0.45
+        - 0.50
+        - 0.55
+        - 0.60
+        - 0.65
+        - 0.70
+        - 0.75
+        - 0.80
+        - 0.85
+        - 0.90
+        - 0.95

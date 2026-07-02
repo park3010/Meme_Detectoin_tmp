@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -30,14 +31,36 @@ class TextEncoderWrapper(nn.Module):
         model_name: str = "microsoft/deberta-v3-base",
         max_tokens: int = 64,
         device: str = "cpu",
+        checkpoint_path: str | Path | None = None,
+        cache_dir: str | Path | None = None,
+        local_files_only: bool = True,
+        allow_download: bool = False,
     ) -> None:
         super().__init__()
         self.hidden_dim = hidden_dim
         self.max_tokens = max_tokens
         self.device_name = device
+        self.model_name = model_name
+        self.checkpoint_path = Path(checkpoint_path) if checkpoint_path else None
+        self.cache_dir = Path(cache_dir) if cache_dir else None
+        self.local_files_only = local_files_only
+        self.allow_download = allow_download
         self.tokenizer: Any | None = None
         self.model: Any | None = None
         self.backend = "hashing"
+        self._readiness: dict[str, Any] = {
+            "requested_backend": "transformers",
+            "resolved_backend": "hashing",
+            "model_name": model_name,
+            "checkpoint_path": str(self.checkpoint_path) if self.checkpoint_path else None,
+            "checkpoint_exists": bool(self.checkpoint_path and self.checkpoint_path.exists()),
+            "weights_loaded": False,
+            "weights_source": None,
+            "local_files_only": local_files_only,
+            "allow_download": allow_download,
+            "fallback_used": True,
+            "load_error": None,
+        }
         self._projection: nn.Linear | None = None
         self.register_buffer("_device_anchor", torch.empty(0), persistent=False)
         if prefer_transformers:
@@ -47,11 +70,31 @@ class TextEncoderWrapper(nn.Module):
         try:
             from transformers import AutoModel, AutoTokenizer  # type: ignore
 
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
-            self.model = AutoModel.from_pretrained(model_name, local_files_only=True).to(device).eval()
+            source = str(self.checkpoint_path) if self.checkpoint_path else model_name
+            if self.checkpoint_path and not self.checkpoint_path.exists():
+                self._mark_load_error(f"checkpoint_path does not exist: {self.checkpoint_path}")
+                return
+            local_only = True if self.checkpoint_path else self.local_files_only or not self.allow_download
+            kwargs = {
+                "local_files_only": local_only,
+            }
+            if self.cache_dir:
+                kwargs["cache_dir"] = str(self.cache_dir)
+            self.tokenizer = AutoTokenizer.from_pretrained(source, **kwargs)
+            self.model = AutoModel.from_pretrained(source, **kwargs).to(device).eval()
             self.backend = "transformers"
+            self._readiness.update(
+                {
+                    "resolved_backend": "transformers",
+                    "weights_loaded": True,
+                    "weights_source": source,
+                    "fallback_used": False,
+                    "load_error": None,
+                }
+            )
             logger.info("Using local HuggingFace text encoder: %s", model_name)
         except Exception as exc:
+            self._mark_load_error(_short_error(exc))
             logger.info("Transformers encoder unavailable; using hashing fallback: %s", exc)
 
     @torch.no_grad()
@@ -102,5 +145,29 @@ class TextEncoderWrapper(nn.Module):
         except (TypeError, RuntimeError):
             return torch.device("cpu")
 
+    def readiness_state(self) -> dict[str, Any]:
+        """Return serializable text-backbone readiness and provenance state."""
+
+        state = dict(self._readiness)
+        state["resolved_backend"] = self.backend
+        state["checkpoint_exists"] = bool(self.checkpoint_path and self.checkpoint_path.exists())
+        state["fallback_used"] = self.model is None or self.backend == "hashing" or bool(state.get("fallback_used"))
+        return state
+
+    def _mark_load_error(self, message: str) -> None:
+        self._readiness.update(
+            {
+                "resolved_backend": self.backend,
+                "weights_loaded": False,
+                "weights_source": None,
+                "fallback_used": True,
+                "load_error": message[:500],
+            }
+        )
+
 
 __all__ = ["TextEncoderWrapper"]
+
+
+def _short_error(exc: Exception) -> str:
+    return f"{type(exc).__name__}: {str(exc)[:300]}"

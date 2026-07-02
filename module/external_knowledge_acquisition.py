@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -344,6 +345,10 @@ class ExternalKnowledgeAcquisition(nn.Module):
         fallback_candidates: bool = True,
         prefer_transformers: bool = False,
         text_model_name: str = "microsoft/deberta-v3-base",
+        text_checkpoint_path: str | Path | None = None,
+        text_cache_dir: str | Path | None = None,
+        text_local_files_only: bool = True,
+        text_allow_download: bool = False,
         max_documents: int | None = None,
         use_cross_encoder_rerank: bool = True,
         device: str = "cpu",
@@ -360,7 +365,16 @@ class ExternalKnowledgeAcquisition(nn.Module):
             use_cross_encoder_rerank=use_cross_encoder_rerank,
         )
         self.generator = ContextAugmentationGenerator(max_items=3)
-        self.text_encoder = TextEncoderWrapper(hidden_dim=hidden_dim, prefer_transformers=prefer_transformers, model_name=text_model_name, device=device)
+        self.text_encoder = TextEncoderWrapper(
+            hidden_dim=hidden_dim,
+            prefer_transformers=prefer_transformers,
+            model_name=text_model_name,
+            device=device,
+            checkpoint_path=text_checkpoint_path,
+            cache_dir=text_cache_dir,
+            local_files_only=text_local_files_only,
+            allow_download=text_allow_download,
+        )
         self.source_embedding = nn.Embedding(6, hidden_dim)
         self.query_type_embedding = nn.Embedding(8, hidden_dim)
         self.score_projection = nn.Linear(3, hidden_dim)

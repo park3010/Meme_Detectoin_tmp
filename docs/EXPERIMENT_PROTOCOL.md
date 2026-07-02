@@ -2,6 +2,59 @@
 
 This repository uses `scripts/run.py suite` as the canonical entry point for reproducible paper experiment batches. The suite runner resolves a preset from `configs/config.yaml`, pins one split file per dataset/seed, executes the existing training or evaluation functions, writes run manifests, and optionally audits each full-framework or ablation run.
 
+## Experiment 0 Preflight
+
+Before running `core_1seed` or `core_5seed`, run Experiment 0:
+
+```bash
+python scripts/run.py preflight \
+  --profile smoke \
+  --config configs/config.yaml \
+  --dataset harm_c harm_p facebook memotion \
+  --seed 42 \
+  --label-set clean \
+  --device cpu \
+  --write-report
+```
+
+Then run the strict main-experiment gate:
+
+```bash
+python scripts/run.py preflight \
+  --profile main_experiment \
+  --config configs/config.yaml \
+  --dataset harm_c harm_p facebook memotion \
+  --seed 42 \
+  --label-set clean \
+  --device cpu \
+  --write-report \
+  --strict
+```
+
+Smoke preflight is an offline structural check and may pass with fallback encoders. Main-experiment strict preflight is the paper-readiness gate and must pass before main experiment results should be treated as valid.
+
+Backend availability is not the same thing as pretrained weight loading. The preflight records actual `weights_loaded`, `weights_source`, `fallback_used`, and `random_initialization_used` states for vision and text backbones. A random OpenCLIP model or hashing text encoder blocks `main_experiment`.
+
+The preflight also verifies:
+
+- dataset-field eligibility using normalized labels and `LabelVocab` ignore policies
+- fixed split integrity and split SHA-256 reuse
+- retrieval corpus parseability and provenance
+- metric-contract readiness, including the rule that formal `tactic_rhetorical` metrics must use logits-only decoding rather than rendered heuristic labels
+- normalized annotation snapshot hashes
+
+Preflight artifacts are written under:
+
+```text
+result/preflight/<profile>/
+```
+
+Decision meanings:
+
+- `PASS`: no warnings or blocking errors
+- `PASS_WITH_WARNINGS`: runnable but not paper-ready without reviewing warnings
+- `BLOCKED`: do not run main experiments until the blocking errors are resolved
+
 ## Suite Presets
 
 Configured under `experiments.suites` in `configs/config.yaml`:
@@ -109,4 +162,3 @@ python scripts/run.py suite --suite core_1seed --skip-complete
 ```
 
 A run is skipped only when its run manifest, metrics, and predictions exist and the run is considered complete. Full-framework and ablation runs are re-audited before being skipped.
-

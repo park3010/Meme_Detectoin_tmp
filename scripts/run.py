@@ -13,6 +13,7 @@ from experiments.ablation_runner import run_ablation_experiment, run_fusion_expe
 from experiments.evaluation import evaluate_prediction_file
 from experiments.pipeline_audit import audit_run_artifacts, format_audit_summary, write_audit_report
 from experiments.experiment_suite import run_suite
+from experiments.preflight import format_preflight_summary, run_preflight
 from experiments.splits import DEFAULT_SEEDS, normalize_dataset_names
 from experiments.train import BaselineRunConfig, OursRunConfig, run_baseline_experiment, run_ours_experiment
 from module.runner import PipelineRunner
@@ -106,6 +107,28 @@ def build_parser() -> argparse.ArgumentParser:
     suite.add_argument("--min-delta", type=float, default=0.0)
     suite.add_argument("--early-stop-metric", default="val_macro_f1")
     suite.set_defaults(func=_cmd_suite)
+
+    preflight = subparsers.add_parser("preflight", help="Run Experiment 0 readiness preflight.")
+    preflight.add_argument("--profile", required=True, choices=["smoke", "main_experiment"])
+    preflight.add_argument("--config", default=DEFAULT_CONFIG)
+    preflight.add_argument("--dataset", nargs="+", default=["harm_c", "harm_p", "facebook", "memotion"])
+    preflight.add_argument("--seed", nargs="+", type=int, default=[42])
+    preflight.add_argument("--label-set", choices=["full", "clean"], default="clean")
+    preflight.add_argument("--normalized-root", default="dataset/annotation_normalized")
+    preflight.add_argument("--vocab-path", default="configs/label_vocab.yaml")
+    preflight.add_argument("--device", default="cpu")
+    preflight.add_argument("--output-root", default="result")
+    preflight.add_argument("--write-report", action="store_true")
+    preflight.add_argument("--strict", action="store_true")
+    preflight.add_argument("--fail-on-warnings", action="store_true")
+    preflight.add_argument("--create-missing-splits", dest="create_missing_splits", action="store_true", default=None)
+    preflight.add_argument("--no-create-missing-splits", dest="create_missing_splits", action="store_false")
+    preflight.add_argument("--overwrite-splits", action="store_true")
+    preflight.add_argument("--probe-pipeline", action="store_true")
+    preflight.add_argument("--probe-limit", type=int, default=3)
+    preflight.add_argument("--allow-fallback", action="store_true")
+    preflight.add_argument("--allow-download", action="store_true")
+    preflight.set_defaults(func=_cmd_preflight)
     return parser
 
 
@@ -333,6 +356,34 @@ def _cmd_audit(args: argparse.Namespace) -> None:
 def _cmd_suite(args: argparse.Namespace) -> None:
     result = run_suite(args)
     if not args.dry_run and result.get("status") != "complete":
+        raise SystemExit(1)
+
+
+def _cmd_preflight(args: argparse.Namespace) -> None:
+    result = run_preflight(
+        profile=args.profile,
+        config_path=args.config,
+        datasets=args.dataset,
+        seeds=args.seed,
+        label_set=args.label_set,
+        normalized_root=args.normalized_root,
+        vocab_path=args.vocab_path,
+        device=args.device,
+        output_root=args.output_root,
+        strict=args.strict,
+        fail_on_warnings=args.fail_on_warnings,
+        create_missing_splits=args.create_missing_splits,
+        overwrite_splits=args.overwrite_splits,
+        probe_pipeline=args.probe_pipeline,
+        probe_limit=args.probe_limit,
+        allow_fallback=args.allow_fallback,
+        allow_download=args.allow_download,
+        write_report=args.write_report,
+    )
+    print(format_preflight_summary(result))
+    if args.strict and result.errors:
+        raise SystemExit(1)
+    if args.fail_on_warnings and result.warnings:
         raise SystemExit(1)
 
 

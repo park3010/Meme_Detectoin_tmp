@@ -106,6 +106,65 @@ def build_run_manifest(
     return manifest
 
 
+def collect_backbone_state(model: Any) -> dict[str, Any]:
+    """Collect actual resolved vision/text backbone readiness from a model."""
+
+    vision_states: list[dict[str, Any]] = []
+    text_states: list[dict[str, Any]] = []
+    try:
+        from module.backbone.text import TextEncoderWrapper
+        from module.backbone.vision import CLIPWrapper
+    except Exception:
+        return {"vision": {}, "text": {}, "all_vision": [], "all_text": []}
+
+    modules = model.modules() if hasattr(model, "modules") else []
+    for module in modules:
+        if isinstance(module, CLIPWrapper):
+            vision_states.append(module.readiness_state())
+        elif isinstance(module, TextEncoderWrapper):
+            text_states.append(module.readiness_state())
+    return {
+        "vision": vision_states[0] if vision_states else {},
+        "text": text_states[0] if text_states else {},
+        "all_vision": vision_states,
+        "all_text": text_states,
+    }
+
+
+def build_data_snapshot(
+    *,
+    normalized_root: str | Path,
+    label_set: str,
+    label_vocab_path: str | Path,
+    datasets: list[str],
+) -> dict[str, Any]:
+    """Return normalized-annotation and vocab snapshot metadata."""
+
+    files = []
+    try:
+        from dataset.labels import iter_normalized_label_paths
+
+        paths = iter_normalized_label_paths(normalized_root, datasets, label_set=label_set)
+    except Exception:
+        paths = []
+    for dataset, path in zip(datasets, paths):
+        files.append(
+            {
+                "dataset": dataset,
+                "path": str(path),
+                "exists": Path(path).exists(),
+                "sha256": sha256_file(path),
+            }
+        )
+    return {
+        "normalized_root": str(normalized_root),
+        "label_set": label_set,
+        "label_vocab_path": str(label_vocab_path),
+        "label_vocab_sha256": sha256_file(label_vocab_path),
+        "normalized_label_files": files,
+    }
+
+
 def write_run_manifest(output_dir: str | Path, manifest: dict[str, Any]) -> Path:
     """Write run_manifest.json under one run output directory."""
 
@@ -139,4 +198,3 @@ def _compact_audit(audit: dict[str, Any]) -> dict[str, Any]:
         "warning_count": len(audit.get("warnings", [])),
         "error_count": len(audit.get("errors", [])),
     }
-

@@ -36,7 +36,7 @@ def test_consolidated_public_imports_work():
 
 def test_unified_cli_exposes_required_subcommands():
     parser = run.build_parser()
-    for command in ["train", "baseline", "stage", "evaluate", "ablation", "audit", "suite"]:
+    for command in ["train", "baseline", "stage", "evaluate", "ablation", "audit", "suite", "preflight"]:
         assert command in parser.format_help()
 
 

@@ -52,6 +52,24 @@ configs/annotation_normalization.yaml
 
 ## 실험 프로토콜 실행
 
+논문용 메인 실험 전에 Experiment 0 preflight를 먼저 실행합니다.
+
+```bash
+python scripts/run.py preflight --profile smoke --config configs/config.yaml --dataset harm_c harm_p facebook memotion --seed 42 --label-set clean --device cpu --write-report
+python scripts/run.py preflight --profile main_experiment --config configs/config.yaml --dataset harm_c harm_p facebook memotion --seed 42 --label-set clean --device cpu --write-report --strict
+```
+
+`smoke` preflight는 오프라인 구조 점검이며 fallback encoder 사용 시에도 경고와 함께 통과할 수 있습니다. `main_experiment` preflight는 논문용 실험 가능 여부를 판단하는 엄격한 게이트입니다. OpenCLIP/HuggingFace backend가 import되는 것만으로 pretrained checkpoint가 로드된 것으로 보지 않습니다. 실제 checkpoint 로드 여부(`weights_loaded`), fallback 사용 여부, random initialization 여부를 artifact에 기록합니다.
+
+주요 preflight 출력:
+
+```text
+result/preflight/smoke/
+result/preflight/main_experiment/
+```
+
+메인 실험 결과는 `main_experiment` strict preflight가 통과한 뒤에만 유효한 것으로 간주합니다.
+
 논문용 반복 실험은 통합 CLI의 suite 명령을 권장합니다.
 
 ```bash

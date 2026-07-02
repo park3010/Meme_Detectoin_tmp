@@ -17,7 +17,7 @@ from experiments.early_stopping import EarlyStopping, metric_from_validation, pr
 from experiments.evaluation import compute_harmfulness_metrics, evaluate_structured_predictions
 from experiments.prediction_io import save_predictions_and_metrics, stage_outputs_to_prediction_record
 from experiments.progress import progress_iter
-from experiments.run_manifest import build_run_manifest, current_command, write_run_manifest
+from experiments.run_manifest import build_data_snapshot, build_run_manifest, collect_backbone_state, current_command, write_run_manifest
 from experiments.splits import build_splits_for_dataset, label_to_int, load_split_file, save_splits, split_samples
 from experiments.ablation_configs import LOGITS_LOSSES, STRUCTURED_AUXILIARY_LOSSES, default_component_state
 from module.baseline import CLIPTextConcatClassifier, ImageOnlyCLIPClassifier, TextOnlyEncoderClassifier
@@ -266,7 +266,7 @@ def run_ours_experiment(config: OursRunConfig) -> dict[str, Any]:
     save_training_log(output_dir, training_log)
     metrics, predictions = evaluate_ours_pipeline(pipeline, materialized.get("test", []), config, device=device, desc="test")
     save_predictions_and_metrics(output_dir, predictions, metrics)
-    manifest = _ours_manifest(config)
+    manifest = _ours_manifest(config, pipeline)
     write_run_manifest(output_dir, manifest)
     print(
         f"[early-stopping] {config.dataset_name}/{config.model_name}/seed={config.seed}: "
@@ -570,7 +570,16 @@ def run_baseline_experiment(config: BaselineRunConfig) -> dict[str, Any]:
         expected_disabled_losses=[],
         expected_knowledge_mode="not_applicable",
         expected_evidence_mode="baseline",
-        extra={"baseline_model": config.model_name},
+        extra={
+            "baseline_model": config.model_name,
+            "backbone_state": collect_backbone_state(model),
+            "data_snapshot": build_data_snapshot(
+                normalized_root=config.normalized_root,
+                label_set=config.label_set,
+                label_vocab_path=config.vocab_path,
+                datasets=[config.dataset_name],
+            ),
+        },
     )
     write_run_manifest(Path(config.output_root) / "predictions" / config.dataset_name / config.model_name / str(config.seed), manifest)
     print(
@@ -596,6 +605,11 @@ def create_baseline_model(model_name: str, cfg: dict[str, Any] | None = None, de
             prefer_pretrained_clip=bool(clip_cfg.get("prefer_pretrained", False)),
             clip_model_name=str(clip_cfg.get("model_name", "ViT-B-32")),
             device=device,
+            clip_pretrained_tag=clip_cfg.get("pretrained_tag"),
+            clip_checkpoint_path=clip_cfg.get("checkpoint_path"),
+            clip_cache_dir=clip_cfg.get("cache_dir"),
+            clip_local_files_only=bool(clip_cfg.get("local_files_only", True)),
+            clip_allow_download=bool(clip_cfg.get("allow_download", False)),
         )
     if model_name == "text_only_encoder":
         return TextOnlyEncoderClassifier(
@@ -603,6 +617,10 @@ def create_baseline_model(model_name: str, cfg: dict[str, Any] | None = None, de
             prefer_transformers=bool(text_cfg.get("prefer_transformers", False)),
             text_model_name=str(text_cfg.get("model_name", "microsoft/deberta-v3-base")),
             device=device,
+            text_checkpoint_path=text_cfg.get("checkpoint_path"),
+            text_cache_dir=text_cfg.get("cache_dir"),
+            text_local_files_only=bool(text_cfg.get("local_files_only", True)),
+            text_allow_download=bool(text_cfg.get("allow_download", False)),
         )
     if model_name == "clip_text_concat":
         return CLIPTextConcatClassifier(
@@ -612,6 +630,15 @@ def create_baseline_model(model_name: str, cfg: dict[str, Any] | None = None, de
             clip_model_name=str(clip_cfg.get("model_name", "ViT-B-32")),
             text_model_name=str(text_cfg.get("model_name", "microsoft/deberta-v3-base")),
             device=device,
+            clip_pretrained_tag=clip_cfg.get("pretrained_tag"),
+            clip_checkpoint_path=clip_cfg.get("checkpoint_path"),
+            clip_cache_dir=clip_cfg.get("cache_dir"),
+            clip_local_files_only=bool(clip_cfg.get("local_files_only", True)),
+            clip_allow_download=bool(clip_cfg.get("allow_download", False)),
+            text_checkpoint_path=text_cfg.get("checkpoint_path"),
+            text_cache_dir=text_cfg.get("cache_dir"),
+            text_local_files_only=bool(text_cfg.get("local_files_only", True)),
+            text_allow_download=bool(text_cfg.get("allow_download", False)),
         )
     raise ValueError(f"Unsupported baseline model: {model_name}")
 
@@ -738,7 +765,7 @@ def _load_or_create_baseline_splits(config: BaselineRunConfig, dataset: Any) -> 
     return splits
 
 
-def _ours_manifest(config: OursRunConfig) -> dict[str, Any]:
+def _ours_manifest(config: OursRunConfig, pipeline: HarmfulMemePipeline) -> dict[str, Any]:
     component_state = default_component_state()
     active_losses = list(LOGITS_LOSSES)
     disabled_losses: list[str] = []
@@ -770,6 +797,13 @@ def _ours_manifest(config: OursRunConfig) -> dict[str, Any]:
             "train_relevance_mlp": config.train_relevance_mlp,
             "harmfulness_only": config.harmfulness_only,
             "structured_auxiliary": config.structured_auxiliary,
+            "backbone_state": collect_backbone_state(pipeline),
+            "data_snapshot": build_data_snapshot(
+                normalized_root=config.normalized_root,
+                label_set=config.label_set,
+                label_vocab_path=config.vocab_path,
+                datasets=[config.dataset_name],
+            ),
         },
     )
 

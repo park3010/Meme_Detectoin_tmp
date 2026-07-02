@@ -32,30 +32,92 @@ class CLIPWrapper(nn.Module):
         prefer_pretrained: bool = False,
         model_name: str = "ViT-B-32",
         device: str = "cpu",
+        pretrained_tag: str | None = None,
+        checkpoint_path: str | Path | None = None,
+        cache_dir: str | Path | None = None,
+        local_files_only: bool = True,
+        allow_download: bool = False,
     ) -> None:
         super().__init__()
         self.hidden_dim = hidden_dim
         self.device_name = device
+        self.model_name = model_name
+        self.prefer_pretrained = prefer_pretrained
+        self.pretrained_tag = pretrained_tag
+        self.checkpoint_path = Path(checkpoint_path) if checkpoint_path else None
+        self.cache_dir = Path(cache_dir) if cache_dir else None
+        self.local_files_only = local_files_only
+        self.allow_download = allow_download
         self.model: Any | None = None
         self.preprocess: Any | None = None
         self.backend = "fallback"
+        self._readiness: dict[str, Any] = {
+            "requested_backend": "clip",
+            "resolved_backend": "fallback",
+            "model_name": model_name,
+            "prefer_pretrained": prefer_pretrained,
+            "pretrained_requested": bool(prefer_pretrained),
+            "pretrained_tag": pretrained_tag,
+            "checkpoint_path": str(self.checkpoint_path) if self.checkpoint_path else None,
+            "checkpoint_exists": bool(self.checkpoint_path and self.checkpoint_path.exists()),
+            "weights_loaded": False,
+            "weights_source": None,
+            "local_files_only": local_files_only,
+            "allow_download": allow_download,
+            "fallback_used": True,
+            "random_initialization_used": False,
+            "load_error": None,
+        }
         self._projection: nn.Linear | None = None
         self.register_buffer("_device_anchor", torch.empty(0), persistent=False)
         if prefer_pretrained:
             self._try_load_clip(model_name, device)
 
     def _try_load_clip(self, model_name: str, device: str) -> None:
+        if self.local_files_only and not self.allow_download and not self.checkpoint_path:
+            self._mark_load_error("pretrained vision requested, but no local checkpoint_path was configured")
+            return
         try:
             import open_clip  # type: ignore
 
-            model, _, preprocess = open_clip.create_model_and_transforms(model_name, pretrained=None)
+            pretrained = self.pretrained_tag if (self.allow_download and self.pretrained_tag) else None
+            model, _, preprocess = open_clip.create_model_and_transforms(
+                model_name,
+                pretrained=pretrained,
+                cache_dir=str(self.cache_dir) if self.cache_dir else None,
+            )
+            weights_loaded = bool(pretrained)
+            weights_source = f"open_clip:{pretrained}" if pretrained else None
+            if self.checkpoint_path:
+                if not self.checkpoint_path.exists():
+                    self._mark_load_error(f"checkpoint_path does not exist: {self.checkpoint_path}")
+                    return
+                state = torch.load(self.checkpoint_path, map_location="cpu")
+                state_dict = state.get("state_dict", state) if isinstance(state, dict) else state
+                model.load_state_dict(state_dict, strict=False)
+                weights_loaded = True
+                weights_source = str(self.checkpoint_path)
             self.model = model.to(device).eval()
             self.preprocess = preprocess
             self.backend = "open_clip"
+            self._readiness.update(
+                {
+                    "resolved_backend": "open_clip",
+                    "weights_loaded": weights_loaded,
+                    "weights_source": weights_source,
+                    "fallback_used": False,
+                    "random_initialization_used": not weights_loaded,
+                    "load_error": None if weights_loaded else "open_clip model initialized without pretrained weights",
+                }
+            )
             logger.info("Using open_clip backend: %s", model_name)
             return
         except Exception as exc:
+            self._mark_load_error(f"open_clip: {_short_error(exc)}")
             logger.info("open_clip unavailable, trying clip package: %s", exc)
+        if not self.allow_download:
+            logger.info("clip package loading skipped because allow_download=false")
+            return
         try:
             import clip  # type: ignore
 
@@ -63,8 +125,19 @@ class CLIPWrapper(nn.Module):
             self.model = model.eval()
             self.preprocess = preprocess
             self.backend = "clip"
+            self._readiness.update(
+                {
+                    "resolved_backend": "clip",
+                    "weights_loaded": True,
+                    "weights_source": f"clip:{model_name}",
+                    "fallback_used": False,
+                    "random_initialization_used": False,
+                    "load_error": None,
+                }
+            )
             logger.info("Using clip backend: %s", model_name)
         except Exception as exc:
+            self._mark_load_error(f"clip: {_short_error(exc)}")
             logger.info("CLIP unavailable; using fallback image encoder: %s", exc)
 
     @torch.no_grad()
@@ -119,6 +192,27 @@ class CLIPWrapper(nn.Module):
             return torch.device(self.device_name)
         except (TypeError, RuntimeError):
             return torch.device("cpu")
+
+    def readiness_state(self) -> dict[str, Any]:
+        """Return serializable backbone readiness and provenance state."""
+
+        state = dict(self._readiness)
+        state["resolved_backend"] = self.backend
+        state["checkpoint_exists"] = bool(self.checkpoint_path and self.checkpoint_path.exists())
+        state["fallback_used"] = self.model is None or self.backend == "fallback" or bool(state.get("fallback_used"))
+        return state
+
+    def _mark_load_error(self, message: str) -> None:
+        self._readiness.update(
+            {
+                "resolved_backend": self.backend,
+                "weights_loaded": False,
+                "weights_source": None,
+                "fallback_used": True,
+                "random_initialization_used": False,
+                "load_error": message[:500],
+            }
+        )
 
 
 # =============================================================================
@@ -186,3 +280,7 @@ class DetectorAdapter:
 
 
 __all__ = ["CLIPWrapper", "Detection", "DetectorAdapter"]
+
+
+def _short_error(exc: Exception) -> str:
+    return f"{type(exc).__name__}: {str(exc)[:300]}"
