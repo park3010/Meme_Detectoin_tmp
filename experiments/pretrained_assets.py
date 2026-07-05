@@ -304,6 +304,8 @@ def _text_runtime_state(config: dict[str, Any]) -> dict[str, Any]:
             device=str(config.get("runtime", {}).get("device", "cpu")),
             checkpoint_path=text_cfg.get("checkpoint_path"),
             cache_dir=text_cfg.get("cache_dir"),
+            tokenizer_use_fast=bool(text_cfg.get("tokenizer_use_fast", False)),
+            tokenizer_backend_policy=text_cfg.get("tokenizer_backend_policy"),
             local_files_only=bool(text_cfg.get("local_files_only", True)),
             allow_download=bool(text_cfg.get("allow_download", False)),
             asset_mode=text_cfg.get("asset_mode"),
@@ -324,6 +326,12 @@ def _asset_provenance_item(config: dict[str, Any], key: str, record: AssetRecord
         "fallback_used": bool(runtime.get("fallback_used", True)),
         "random_initialization_used": bool(runtime.get("random_initialization_used", False)),
         "weights_source": runtime.get("weights_source"),
+        "tokenizer_use_fast": runtime.get("tokenizer_use_fast"),
+        "tokenizer_backend_policy": runtime.get("tokenizer_backend_policy"),
+        "tokenizer_class": runtime.get("tokenizer_class"),
+        "tokenizer_loaded": runtime.get("tokenizer_loaded"),
+        "sentencepiece_required": runtime.get("sentencepiece_required"),
+        "sentencepiece_available": runtime.get("sentencepiece_available"),
         "checkpoint_compatibility_verified": bool(runtime.get("checkpoint_compatibility_verified", False)),
         "checkpoint_format": runtime.get("checkpoint_format"),
         "matched_parameter_ratio": runtime.get("matched_parameter_ratio"),
@@ -347,6 +355,14 @@ def _collect_runtime_issues(kind: str, state: dict[str, Any], strict: bool, warn
         _issue(target, f"{kind}_runtime_weights_not_loaded", "error" if strict else "warning", f"{kind} runtime did not load pretrained weights.", state)
     if state.get("fallback_used"):
         _issue(target, f"{kind}_runtime_fallback_used", "error" if strict else "warning", f"{kind} runtime used fallback features.", state)
+    if kind == "text" and strict and state.get("sentencepiece_required") and not state.get("sentencepiece_available"):
+        _issue(
+            target,
+            "text_sentencepiece_dependency_missing",
+            "error",
+            "Text tokenizer requires SentencePiece, but the active environment cannot import it. Install SentencePiece in the active environment: python -m pip install sentencepiece",
+            state,
+        )
     if kind == "vision" and state.get("random_initialization_used"):
         _issue(target, "vision_runtime_random_initialization", "error" if strict else "warning", "Vision runtime used random initialization.", state)
     if kind == "vision":

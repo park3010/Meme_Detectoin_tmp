@@ -209,6 +209,8 @@ def inspect_backbone_readiness(
         device=device,
         checkpoint_path=text_cfg.get("checkpoint_path"),
         cache_dir=text_cfg.get("cache_dir"),
+        tokenizer_use_fast=bool(text_cfg.get("tokenizer_use_fast", False)),
+        tokenizer_backend_policy=text_cfg.get("tokenizer_backend_policy"),
         local_files_only=bool(text_cfg.get("local_files_only", True)),
         allow_download=bool(text_cfg.get("allow_download", False)),
         asset_mode=text_cfg.get("asset_mode"),
@@ -628,6 +630,14 @@ def _add_backbone_issues(backbone: dict[str, Any], profile_cfg: dict[str, Any], 
         if state.get("checkpoint_path") and not state.get("checkpoint_exists"):
             severity = "error" if profile == "main_experiment" else "warning"
             _issue(issues, f"{name}_checkpoint_missing", severity, f"{name} checkpoint_path was configured but does not exist.", state)
+        if name == "text" and profile == "main_experiment" and state.get("sentencepiece_required") and not state.get("sentencepiece_available"):
+            _issue(
+                issues,
+                "text_sentencepiece_dependency_missing",
+                "error",
+                "Text tokenizer requires SentencePiece, but the active environment cannot import it.",
+                state,
+            )
         if name == "vision" and profile == "main_experiment":
             ratio = state.get("matched_parameter_ratio")
             if not state.get("checkpoint_compatibility_verified"):
@@ -662,6 +672,8 @@ def _vision_ready_for_main(state: dict[str, Any], profile: dict[str, Any]) -> bo
 
 
 def _text_ready_for_main(state: dict[str, Any], profile: dict[str, Any]) -> bool:
+    if state.get("sentencepiece_required") and not state.get("sentencepiece_available"):
+        return False
     if profile.get("forbid_fallback_backbones") and state.get("fallback_used"):
         return False
     if profile.get("require_pretrained_text") and not state.get("weights_loaded"):
@@ -851,6 +863,8 @@ def _next_actions(result: PreflightResult) -> list[str]:
         actions.append("- Vision asset missing: place an architecture-compatible ViT-B-32 OpenCLIP checkpoint at `assets/pretrained/vision/open_clip_vit_b_32/checkpoint.pt`.")
     if any("text_" in error["code"] and ("directory" in error["code"] or "required_files" in error["code"] or "asset_unusable" in error["code"]) for error in result.errors):
         actions.append("- Text asset missing: place a complete Hugging Face DeBERTa-v3-base snapshot at `assets/pretrained/text/deberta_v3_base/`.")
+    if any(error["code"] == "text_sentencepiece_dependency_missing" for error in result.errors):
+        actions.append("- Install SentencePiece in the active environment: `python -m pip install sentencepiece`.")
     if any(error["code"] == "metric_contract_blocked" for error in result.errors):
         actions.append("- Implement logits-only validation-threshold decoding for `tactic_rhetorical` formal metrics.")
     if any(error["code"] == "retrieval_corpus_unusable" for error in result.errors):

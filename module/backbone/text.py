@@ -33,6 +33,8 @@ class TextEncoderWrapper(nn.Module):
         device: str = "cpu",
         checkpoint_path: str | Path | None = None,
         cache_dir: str | Path | None = None,
+        tokenizer_use_fast: bool = False,
+        tokenizer_backend_policy: str | None = None,
         local_files_only: bool = True,
         allow_download: bool = False,
         asset_mode: str | None = None,
@@ -47,6 +49,11 @@ class TextEncoderWrapper(nn.Module):
         self.local_files_only = local_files_only
         self.allow_download = allow_download
         self.asset_mode = asset_mode or ("local_directory" if self.checkpoint_path else "model_name")
+        self.tokenizer_use_fast = bool(tokenizer_use_fast)
+        local_deberta = _is_local_deberta_v3(self.model_name, self.checkpoint_path, self.asset_mode)
+        self.tokenizer_backend_policy = tokenizer_backend_policy or ("sentencepiece_slow" if local_deberta else "auto")
+        self.sentencepiece_required = bool(local_deberta or self.tokenizer_backend_policy == "sentencepiece_slow")
+        self.sentencepiece_available = _sentencepiece_available()
         self.tokenizer: Any | None = None
         self.model: Any | None = None
         self.backend = "hashing"
@@ -63,6 +70,12 @@ class TextEncoderWrapper(nn.Module):
             "weights_source": None,
             "local_files_only": local_files_only,
             "allow_download": allow_download,
+            "tokenizer_use_fast": self.tokenizer_use_fast,
+            "tokenizer_backend_policy": self.tokenizer_backend_policy,
+            "tokenizer_class": None,
+            "tokenizer_loaded": False,
+            "sentencepiece_required": self.sentencepiece_required,
+            "sentencepiece_available": self.sentencepiece_available,
             "fallback_used": True,
             "load_error": None,
         }
@@ -97,13 +110,22 @@ class TextEncoderWrapper(nn.Module):
             }
             if self.cache_dir:
                 kwargs["cache_dir"] = str(self.cache_dir)
-            self.tokenizer = AutoTokenizer.from_pretrained(source, **kwargs)
+            tokenizer_kwargs = dict(kwargs)
+            tokenizer_kwargs["use_fast"] = self.tokenizer_use_fast
+            self.tokenizer = AutoTokenizer.from_pretrained(source, **tokenizer_kwargs)
+            self._readiness.update(
+                {
+                    "tokenizer_loaded": True,
+                    "tokenizer_class": type(self.tokenizer).__name__,
+                    "sentencepiece_available": _sentencepiece_available(),
+                }
+            )
             self.model = AutoModel.from_pretrained(source, **kwargs).to(device).eval()
             self.backend = "transformers"
             self._readiness.update(
                 {
                     "resolved_backend": "transformers",
-                    "weights_loaded": True,
+                    "weights_loaded": self.tokenizer is not None and self.model is not None,
                     "weights_source": "local_directory" if self.asset_mode == "local_directory" else source,
                     "resolved_path": str(self.checkpoint_path.resolve()) if self.checkpoint_path else None,
                     "checkpoint_sha256": _path_sha256(self.checkpoint_path),
@@ -168,11 +190,19 @@ class TextEncoderWrapper(nn.Module):
         """Return serializable text-backbone readiness and provenance state."""
 
         state = dict(self._readiness)
+        self.sentencepiece_available = _sentencepiece_available()
         state["resolved_backend"] = self.backend
         state["checkpoint_exists"] = bool(self.checkpoint_path and self.checkpoint_path.exists())
         state["resolved_path"] = str(self.checkpoint_path.resolve()) if self.checkpoint_path else None
         state["checkpoint_sha256"] = _path_sha256(self.checkpoint_path)
-        state["fallback_used"] = self.model is None or self.backend == "hashing" or bool(state.get("fallback_used"))
+        state["tokenizer_use_fast"] = self.tokenizer_use_fast
+        state["tokenizer_backend_policy"] = self.tokenizer_backend_policy
+        state["tokenizer_loaded"] = self.tokenizer is not None and bool(state.get("tokenizer_loaded"))
+        state["tokenizer_class"] = type(self.tokenizer).__name__ if self.tokenizer is not None else state.get("tokenizer_class")
+        state["sentencepiece_required"] = self.sentencepiece_required
+        state["sentencepiece_available"] = self.sentencepiece_available
+        state["weights_loaded"] = bool(self.model is not None and self.tokenizer is not None and state.get("weights_loaded"))
+        state["fallback_used"] = self.model is None or self.tokenizer is None or self.backend == "hashing" or bool(state.get("fallback_used"))
         return state
 
     def _mark_load_error(self, message: str) -> None:
@@ -181,6 +211,9 @@ class TextEncoderWrapper(nn.Module):
                 "resolved_backend": self.backend,
                 "weights_loaded": False,
                 "weights_source": None,
+                "tokenizer_loaded": self.tokenizer is not None,
+                "tokenizer_class": type(self.tokenizer).__name__ if self.tokenizer is not None else None,
+                "sentencepiece_available": _sentencepiece_available(),
                 "fallback_used": True,
                 "load_error": message[:500],
             }
@@ -192,6 +225,22 @@ __all__ = ["TextEncoderWrapper"]
 
 def _short_error(exc: Exception) -> str:
     return f"{type(exc).__name__}: {str(exc)[:300]}"
+
+
+def _is_local_deberta_v3(model_name: str, checkpoint_path: Path | None, asset_mode: str | None) -> bool:
+    if asset_mode != "local_directory":
+        return False
+    marker = f"{model_name} {checkpoint_path or ''}".lower().replace("_", "-")
+    return "deberta-v3" in marker
+
+
+def _sentencepiece_available() -> bool:
+    try:
+        import sentencepiece  # noqa: F401
+
+        return True
+    except Exception:
+        return False
 
 
 def _path_sha256(path: Path | None) -> str | None:

@@ -76,6 +76,21 @@ assets/pretrained/text/deberta_v3_base/tokenizer.json or spm.model/vocab files
 assets/pretrained/text/deberta_v3_base/model.safetensors or pytorch_model.bin
 ```
 
+The configured DeBERTa-v3 text snapshot uses the slow SentencePiece tokenizer path for main experiments:
+
+```yaml
+backbone:
+  text:
+    tokenizer_use_fast: false
+    tokenizer_backend_policy: sentencepiece_slow
+```
+
+Install the tokenizer dependency in the active environment before strict verification:
+
+```bash
+python -m pip install sentencepiece
+```
+
 Verify assets before strict preflight:
 
 ```bash
@@ -89,7 +104,7 @@ python scripts/run.py assets verify \
 Strict verification requires both structural inspection and actual adapter loading:
 
 - vision: `weights_loaded=true`, `fallback_used=false`, `random_initialization_used=false`
-- text: `weights_loaded=true`, `fallback_used=false`
+- text: `tokenizer_loaded=true`, `weights_loaded=true`, `fallback_used=false`, `sentencepiece_available=true`
 - vision checkpoints must also report `checkpoint_compatibility_verified=true`, `shape_mismatch_count=0`, and `matched_parameter_ratio>=0.99` when manual state-dict loading is used
 
 Asset audit output is written to:
@@ -100,7 +115,7 @@ result/preflight/<profile>/pretrained_asset_audit.json
 
 Each asset manifest records model name, source type, local path, file counts, byte size, SHA-256, required/missing files, and inspection issues. Model weight files must not be committed to Git; only `.gitkeep` and `asset_manifest.json` are intended to be tracked.
 
-Strict main preflight validates actual checkpoint compatibility, not merely file existence or SHA-256. A checkpoint must match the configured OpenCLIP architecture. Random OpenCLIP initialization, partially matched state dicts, tensor shape mismatches, and fallback image embeddings are never paper-valid pretrained states. Final run manifests record the runtime compatibility fields under `pretrained_asset_provenance.vision`.
+Strict main preflight validates actual checkpoint compatibility, not merely file existence or SHA-256. A checkpoint must match the configured OpenCLIP architecture. Random OpenCLIP initialization, partially matched state dicts, tensor shape mismatches, fallback image embeddings, missing text tokenizer load, and missing SentencePiece are never paper-valid pretrained states. Final run manifests record runtime compatibility fields under `pretrained_asset_provenance.vision` and tokenizer policy/dependency fields under `pretrained_asset_provenance.text`.
 
 Recommended order before main experiments:
 

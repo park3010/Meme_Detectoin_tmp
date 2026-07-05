@@ -174,6 +174,7 @@ def test_text_local_directory_runtime_with_mocked_transformers(tmp_path: Path, m
     text_dir = tmp_path / "text"
     text_dir.mkdir()
     _write_text_snapshot(text_dir, weight_name="pytorch_model.bin")
+    _FakeTokenizer.last_kwargs = None
     fake_transformers = SimpleNamespace(AutoTokenizer=_FakeTokenizer, AutoModel=_FakeTextModel)
     monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
 
@@ -186,8 +187,75 @@ def test_text_local_directory_runtime_with_mocked_transformers(tmp_path: Path, m
     )
     state = wrapper.readiness_state()
     assert state["weights_loaded"] is True
+    assert state["tokenizer_loaded"] is True
+    assert state["tokenizer_use_fast"] is False
+    assert state["tokenizer_backend_policy"] == "sentencepiece_slow"
+    assert state["tokenizer_class"] == "_FakeTokenizer"
     assert state["fallback_used"] is False
     assert state["weights_source"] == "local_directory"
+    assert _FakeTokenizer.last_kwargs["use_fast"] is False
+
+
+def test_text_sentencepiece_available_success_readiness(tmp_path: Path, monkeypatch):
+    text_dir = tmp_path / "text"
+    text_dir.mkdir()
+    _write_text_snapshot(text_dir, weight_name="pytorch_model.bin")
+    _FakeTokenizer.last_kwargs = None
+    monkeypatch.setattr("module.backbone.text._sentencepiece_available", lambda: True)
+    monkeypatch.setitem(sys.modules, "transformers", SimpleNamespace(AutoTokenizer=_FakeTokenizer, AutoModel=_FakeTextModel))
+
+    wrapper = TextEncoderWrapper(
+        prefer_transformers=True,
+        model_name="microsoft/deberta-v3-base",
+        checkpoint_path=text_dir,
+        asset_mode="local_directory",
+        tokenizer_use_fast=False,
+        tokenizer_backend_policy="sentencepiece_slow",
+    )
+    state = wrapper.readiness_state()
+
+    assert _FakeTokenizer.last_kwargs["use_fast"] is False
+    assert state["sentencepiece_required"] is True
+    assert state["sentencepiece_available"] is True
+    assert state["tokenizer_loaded"] is True
+    assert state["weights_loaded"] is True
+    assert state["fallback_used"] is False
+
+
+def test_text_asset_verification_propagates_tokenizer_policy(tmp_path: Path, monkeypatch):
+    text_dir = tmp_path / "text"
+    text_dir.mkdir()
+    _write_text_snapshot(text_dir, weight_name="pytorch_model.bin")
+    _FakeTokenizer.last_kwargs = None
+    monkeypatch.setattr("module.backbone.text._sentencepiece_available", lambda: True)
+    monkeypatch.setitem(sys.modules, "transformers", SimpleNamespace(AutoTokenizer=_FakeTokenizer, AutoModel=_FakeTextModel))
+
+    result = verify_pretrained_assets(_config(tmp_path, text_path=text_dir), strict=False)
+
+    assert _FakeTokenizer.last_kwargs["use_fast"] is False
+    assert result.text["runtime"]["tokenizer_use_fast"] is False
+    assert result.text["runtime"]["tokenizer_backend_policy"] == "sentencepiece_slow"
+
+
+def test_tokenizer_failure_cannot_be_masked_by_model_success(tmp_path: Path, monkeypatch):
+    text_dir = tmp_path / "text"
+    text_dir.mkdir()
+    _write_text_snapshot(text_dir, weight_name="pytorch_model.bin")
+    _CountingTextModel.called = False
+    monkeypatch.setitem(sys.modules, "transformers", SimpleNamespace(AutoTokenizer=_FailingTokenizer, AutoModel=_CountingTextModel))
+
+    wrapper = TextEncoderWrapper(
+        prefer_transformers=True,
+        model_name="microsoft/deberta-v3-base",
+        checkpoint_path=text_dir,
+        asset_mode="local_directory",
+    )
+    state = wrapper.readiness_state()
+
+    assert state["tokenizer_loaded"] is False
+    assert state["weights_loaded"] is False
+    assert state["fallback_used"] is True
+    assert _CountingTextModel.called is False
 
 
 def test_smoke_fallback_remains_available_but_strict_cannot_pass(tmp_path: Path):
@@ -222,7 +290,17 @@ def test_manifest_asset_provenance_does_not_infer_weights_loaded_from_manifest(t
         cfg,
         runtime_state={
             "vision": {"weights_loaded": False, "fallback_used": True, "weights_source": None},
-            "text": {"weights_loaded": False, "fallback_used": True, "weights_source": None},
+            "text": {
+                "weights_loaded": False,
+                "fallback_used": True,
+                "weights_source": None,
+                "tokenizer_use_fast": False,
+                "tokenizer_backend_policy": "sentencepiece_slow",
+                "tokenizer_class": "DebertaV2Tokenizer",
+                "tokenizer_loaded": True,
+                "sentencepiece_required": True,
+                "sentencepiece_available": False,
+            },
         },
     )
     manifest = build_run_manifest(
@@ -238,6 +316,11 @@ def test_manifest_asset_provenance_does_not_infer_weights_loaded_from_manifest(t
     assert manifest["pretrained_asset_provenance"]["vision"]["sha256"]
     assert manifest["pretrained_asset_provenance"]["vision"]["weights_loaded"] is False
     assert manifest["pretrained_asset_provenance"]["text"]["weights_loaded"] is False
+    assert manifest["pretrained_asset_provenance"]["text"]["tokenizer_use_fast"] is False
+    assert manifest["pretrained_asset_provenance"]["text"]["tokenizer_backend_policy"] == "sentencepiece_slow"
+    assert manifest["pretrained_asset_provenance"]["text"]["tokenizer_loaded"] is True
+    assert manifest["pretrained_asset_provenance"]["text"]["sentencepiece_required"] is True
+    assert manifest["pretrained_asset_provenance"]["text"]["sentencepiece_available"] is False
 
 
 def _config(tmp_path: Path, *, vision_path: Path | None = None, text_path: Path | None = None) -> dict:
@@ -259,6 +342,8 @@ def _config(tmp_path: Path, *, vision_path: Path | None = None, text_path: Path 
                 "asset_mode": "local_directory",
                 "checkpoint_path": str(text_path or tmp_path / "missing_text"),
                 "cache_dir": str(tmp_path / "text_cache"),
+                "tokenizer_use_fast": False,
+                "tokenizer_backend_policy": "sentencepiece_slow",
                 "local_files_only": True,
                 "allow_download": False,
             },
@@ -303,9 +388,12 @@ def _manual_open_clip():
 
 
 class _FakeTokenizer:
+    last_kwargs = None
+
     @classmethod
     def from_pretrained(cls, *args, **kwargs):
         assert kwargs.get("local_files_only") is True
+        cls.last_kwargs = dict(kwargs)
         return cls()
 
     def __call__(self, text, **kwargs):
@@ -328,3 +416,18 @@ class _FakeTextModel(torch.nn.Module):
 
     def forward(self, **kwargs):
         return SimpleNamespace(last_hidden_state=torch.ones(1, 2, 4))
+
+
+class _FailingTokenizer:
+    @classmethod
+    def from_pretrained(cls, *args, **kwargs):
+        raise RuntimeError("tokenizer load failed")
+
+
+class _CountingTextModel(_FakeTextModel):
+    called = False
+
+    @classmethod
+    def from_pretrained(cls, *args, **kwargs):
+        cls.called = True
+        return cls()

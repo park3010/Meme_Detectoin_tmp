@@ -50,6 +50,8 @@ backbone:
     asset_mode: local_directory
     checkpoint_path: assets/pretrained/text/deberta_v3_base
     cache_dir: assets/pretrained/text/deberta_v3_base/cache
+    tokenizer_use_fast: false
+    tokenizer_backend_policy: sentencepiece_slow
     local_files_only: true
     allow_download: false
     require_pretrained_for_main: true

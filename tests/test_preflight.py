@@ -82,6 +82,41 @@ def test_text_fallback_and_mocked_transformer_readiness(tmp_path: Path, monkeypa
     assert state["fallback_used"] is False
 
 
+def test_strict_main_preflight_reports_missing_sentencepiece(tmp_path: Path, monkeypatch):
+    cfg = _tiny_config(tmp_path)
+    text_dir = tmp_path / "text_snapshot"
+    text_dir.mkdir()
+    _write_text_snapshot(text_dir)
+    cfg["backbone"]["text"].update(
+        {
+            "model_name": "microsoft/deberta-v3-base",
+            "asset_mode": "local_directory",
+            "checkpoint_path": str(text_dir),
+            "tokenizer_use_fast": False,
+            "tokenizer_backend_policy": "sentencepiece_slow",
+        }
+    )
+    monkeypatch.setattr("module.backbone.text._sentencepiece_available", lambda: False)
+    monkeypatch.setitem(sys.modules, "transformers", SimpleNamespace(AutoTokenizer=_FakeTokenizer, AutoModel=_FakeTextModel))
+
+    result = run_preflight(
+        profile="main_experiment",
+        config_path=_write_config(tmp_path, cfg),
+        datasets=["harm_c"],
+        seeds=[42],
+        output_root=tmp_path / "result_sentencepiece",
+        normalized_root=tmp_path / "normalized",
+        vocab_path="configs/label_vocab.yaml",
+        write_report=True,
+        strict=True,
+    )
+
+    codes = {item["code"] for item in result.errors}
+    assert "text_sentencepiece_dependency_missing" in codes
+    report = Path(result.artifacts["preflight_report"]).read_text(encoding="utf-8")
+    assert "python -m pip install sentencepiece" in report
+
+
 def test_dataset_eligibility_ignores_ambiguous_unknown_and_detects_ineligible(tmp_path: Path):
     split = tmp_path / "result" / "splits" / "harm_c" / "seed_42.json"
     split.parent.mkdir(parents=True)
@@ -270,3 +305,10 @@ def _write_normalized(path: Path, rows: list[tuple[str, dict]]) -> None:
             }
         )
     path.write_text("\n".join(json.dumps(record) for record in records) + "\n", encoding="utf-8")
+
+
+def _write_text_snapshot(path: Path) -> None:
+    (path / "config.json").write_text("{}", encoding="utf-8")
+    (path / "tokenizer_config.json").write_text("{}", encoding="utf-8")
+    (path / "spm.model").write_bytes(b"spm")
+    (path / "pytorch_model.bin").write_bytes(b"weights")

@@ -83,7 +83,13 @@ assets/pretrained/text/deberta_v3_base/
 
 텍스트 디렉터리는 `config.json`, tokenizer 파일, 그리고 `model.safetensors` 또는 `pytorch_model.bin`을 포함해야 합니다. 모델 weight 파일은 Git에 커밋하지 않습니다. `asset_manifest.json`과 `.gitkeep`만 추적 대상입니다.
 
-Strict main preflight는 파일 존재 여부나 SHA-256만 확인하지 않습니다. Vision checkpoint가 설정된 OpenCLIP architecture와 실제로 호환되어야 하며, `checkpoint_compatibility_verified=true`, `shape_mismatch_count=0`, 그리고 manual loading 시 `matched_parameter_ratio>=0.99`가 필요합니다. Random initialization, fallback embedding, shape mismatch, 낮은 key coverage는 논문용 pretrained 상태로 인정하지 않습니다.
+DeBERTa-v3 텍스트 snapshot은 main experiment에서 slow SentencePiece tokenizer 경로를 명시적으로 사용합니다. `configs/config.yaml`의 `backbone.text.tokenizer_use_fast=false`, `tokenizer_backend_policy=sentencepiece_slow`가 기준이며, active environment에 다음 dependency가 필요합니다.
+
+```bash
+python -m pip install sentencepiece
+```
+
+Strict main preflight는 파일 존재 여부나 SHA-256만 확인하지 않습니다. Vision checkpoint가 설정된 OpenCLIP architecture와 실제로 호환되어야 하며, `checkpoint_compatibility_verified=true`, `shape_mismatch_count=0`, 그리고 manual loading 시 `matched_parameter_ratio>=0.99`가 필요합니다. Text는 `tokenizer_loaded=true`, `weights_loaded=true`, `sentencepiece_available=true`가 필요합니다. Random initialization, fallback embedding, shape mismatch, 낮은 key coverage, missing SentencePiece는 논문용 pretrained 상태로 인정하지 않습니다.
 
 주요 preflight 출력:
 
