@@ -78,6 +78,7 @@ def audit_run_artifacts(
     training_rows = _load_records(paths["training_log"], result, "training log", strict and require_training_log)
     prediction_rows = _load_records(paths["predictions"], result, "predictions", strict)
     metrics_obj = _load_object(paths["metrics"], result, "metrics", strict)
+    tactic_decoding_obj = _load_object(paths["tactic_decoding"], result, "formal tactic decoding", False) if paths["tactic_decoding"] else {}
 
     expected_losses = set(manifest.get("expected_active_logits_losses") or EXPECTED_LOGITS_LOSSES)
     disabled_losses = set(manifest.get("expected_disabled_losses") or [])
@@ -102,6 +103,15 @@ def audit_run_artifacts(
         result,
         require_nonempty_metrics=require_nonempty_metrics,
         allow_empty_split=allow_empty_split,
+    )
+    result["formal_tactic_decoding"] = audit_formal_tactic_decoding(
+        tactic_decoding_obj,
+        metrics_obj,
+        prediction_rows,
+        result,
+        strict=strict,
+        allow_empty_split=allow_empty_split,
+        required=_requires_formal_tactic_decoding(manifest),
     )
     result["ablation_contract"] = audit_ablation_contract(
         manifest,
@@ -134,6 +144,7 @@ def discover_artifacts(
         ),
         "metrics": _resolve_artifact(root, metrics, ["metrics.json", "final_metrics.json", "metrics.jsonl"]),
         "manifest": _resolve_artifact(root, None, ["run_manifest.json"]),
+        "tactic_decoding": _resolve_artifact(root, None, ["tactic_rhetorical_decoding.json"]),
     }
 
 
@@ -530,6 +541,92 @@ def audit_metrics(
     }
 
 
+def audit_formal_tactic_decoding(
+    decoding: dict[str, Any],
+    metrics: dict[str, Any],
+    prediction_rows: list[dict[str, Any]],
+    result: dict[str, Any],
+    *,
+    strict: bool,
+    allow_empty_split: bool,
+    required: bool,
+) -> dict[str, Any]:
+    """Audit formal logits-only rhetorical tactic decoding artifacts."""
+
+    if not decoding:
+        if required:
+            _issue(
+                result,
+                "Formal tactic decoding artifact tactic_rhetorical_decoding.json is missing.",
+                strict=strict,
+                critical=True,
+            )
+        return {"required": required, "artifact_found": False, "passed": not required}
+
+    failures: list[str] = []
+    if decoding.get("schema_version") != "tactic_rhetorical_decoding_v1":
+        failures.append("schema_version=tactic_rhetorical_decoding_v1")
+    if decoding.get("prediction_source") != "tactic_logits_sigmoid":
+        failures.append("prediction_source=tactic_logits_sigmoid")
+    if decoding.get("rendered_labels_used") is not False:
+        failures.append("rendered_labels_used=false")
+    if decoding.get("threshold_policy") != "validation_grid_search":
+        failures.append("threshold_policy=validation_grid_search")
+    if decoding.get("test_evaluation_policy") != "fixed_validation_threshold":
+        failures.append("test_evaluation_policy=fixed_validation_threshold")
+    selected = _number(decoding.get("selected_threshold"))
+    candidates = [_number(item) for item in _as_list(decoding.get("threshold_candidates"))]
+    candidates = [item for item in candidates if item is not None]
+    if selected is None:
+        failures.append("selected_threshold_present")
+    elif candidates and not any(abs(selected - item) <= 1e-8 for item in candidates):
+        failures.append("selected_threshold_in_candidates")
+
+    formal_status = metrics.get("tactic_rhetorical_formal_status")
+    eligible = _integer(metrics.get("tactic_rhetorical_eligible_sample_count"))
+    if formal_status not in {"ready", "no_eligible_samples"}:
+        if not allow_empty_split:
+            failures.append("metrics.tactic_rhetorical_formal_status_ready")
+    if formal_status == "no_eligible_samples" and not allow_empty_split:
+        failures.append("metrics.tactic_rhetorical_has_eligible_samples")
+    if eligible == 0 and not allow_empty_split:
+        failures.append("metrics.tactic_rhetorical_eligible_sample_count_nonzero")
+
+    trace_failures = []
+    for row in prediction_rows[:5]:
+        trace = ((row.get("evaluation") or {}).get("tactic_rhetorical_formal") or {})
+        if not isinstance(trace, dict) or not trace:
+            trace_failures.append(f"{row.get('sample_id', '<unknown>')}: missing formal trace")
+            continue
+        trace_threshold = _number(trace.get("threshold"))
+        if trace.get("prediction_source") != "tactic_logits_sigmoid":
+            trace_failures.append(f"{row.get('sample_id', '<unknown>')}: trace source")
+        if trace.get("rendered_labels_used") is not False:
+            trace_failures.append(f"{row.get('sample_id', '<unknown>')}: trace rendered_labels_used")
+        if selected is not None and trace_threshold is not None and abs(trace_threshold - selected) > 1e-8:
+            trace_failures.append(f"{row.get('sample_id', '<unknown>')}: trace threshold differs")
+    if trace_failures:
+        failures.extend(trace_failures)
+
+    for failure in failures:
+        _issue(result, f"Formal tactic decoding audit failed: {failure}.", strict=strict, critical=True)
+    return {
+        "required": required,
+        "artifact_found": True,
+        "passed": not failures,
+        "prediction_source": decoding.get("prediction_source"),
+        "rendered_labels_used": decoding.get("rendered_labels_used"),
+        "threshold_policy": decoding.get("threshold_policy"),
+        "selected_threshold": selected,
+        "threshold_candidate_count": len(candidates),
+        "test_evaluation_policy": decoding.get("test_evaluation_policy"),
+        "formal_metric_status": formal_status,
+        "eligible_sample_count": eligible,
+        "trace_failures": trace_failures,
+        "failures": failures,
+    }
+
+
 def write_audit_report(result: dict[str, Any], path: str | Path) -> Path:
     """Write a concise Markdown report for one audited run."""
 
@@ -538,6 +635,7 @@ def write_audit_report(result: dict[str, Any], path: str | Path) -> Path:
     training = result.get("training_log", {})
     predictions = result.get("predictions", {})
     metrics = result.get("metrics", {})
+    formal = result.get("formal_tactic_decoding", {})
     artifacts = result.get("artifacts", {})
     aux = training.get("auxiliary_loss_checks", {})
     manifest = result.get("manifest", {}) or {}
@@ -592,6 +690,14 @@ def write_audit_report(result: dict[str, Any], path: str | Path) -> Path:
         f"- Macro-F1: {metrics.get('macro_f1')}",
         f"- Empty split detected: {metrics.get('empty_test_split_detected') or metrics.get('empty_validation_split_detected')}",
         "",
+        "## Formal tactic decoding",
+        f"- Required: {formal.get('required', False)}",
+        f"- Artifact found: {formal.get('artifact_found', False)}",
+        f"- Passed: {formal.get('passed', False)}",
+        f"- Source: `{formal.get('prediction_source')}`",
+        f"- Selected threshold: `{formal.get('selected_threshold')}`",
+        f"- Formal metric status: `{formal.get('formal_metric_status')}`",
+        "",
         "## Warnings",
         *([f"- {warning}" for warning in result.get("warnings", [])] or ["- None"]),
         "",
@@ -610,6 +716,7 @@ def format_audit_summary(result: dict[str, Any]) -> str:
     training = result.get("training_log", {})
     predictions = result.get("predictions", {})
     metrics = result.get("metrics", {})
+    formal = result.get("formal_tactic_decoding", {})
     expected_count = len(training.get("expected_logits_losses", EXPECTED_LOGITS_LOSSES))
     lines = [
         f"Pipeline audit: {str(result.get('status', 'unknown')).upper()}",
@@ -618,6 +725,7 @@ def format_audit_summary(result: dict[str, Any]) -> str:
         f"Expected logits losses: {len(training.get('expected_logits_losses_found', []))}/{expected_count}",
         f"Prediction contract: {predictions.get('contract_pass_count', 0)}/{predictions.get('audited_count', 0)}",
         f"Metrics usable: {metrics.get('metrics_usable', False)}",
+        f"Formal tactic decoding: found={formal.get('artifact_found', False)} passed={formal.get('passed', False)}",
     ]
     contract = result.get("ablation_contract", {})
     if contract.get("ablation_contract_present"):
@@ -698,6 +806,13 @@ def _requires_training_log(manifest: dict[str, Any]) -> bool:
     if run_kind in {"ablation", "fusion", "knowledge_comparison"}:
         return manifest.get("training_strategy") != "evaluation_time_variant"
     return run_kind in {None, "", "ours_full"}
+
+
+def _requires_formal_tactic_decoding(manifest: dict[str, Any]) -> bool:
+    run_kind = manifest.get("run_kind")
+    if run_kind == "baseline":
+        return False
+    return run_kind in {None, "", "ours_full", "ablation", "fusion", "knowledge_comparison"}
 
 
 def _issue(

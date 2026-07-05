@@ -86,3 +86,19 @@ result/experiment_suites/{suite_name}/suite_manifest.json
 ```
 
 ablation 의미와 감사(audit) 기준은 `experiments/ablation_configs.py`의 `AblationContract`와 `docs/EXPERIMENT_PROTOCOL.md`에 정리되어 있습니다.
+
+## Formal `tactic_rhetorical` metric
+
+논문용 `tactic_rhetorical` metric은 Stage E의 trainable tactic logits만 사용합니다.
+
+- 확률 변환: sigmoid
+- threshold: validation macro-F1 기준으로 dataset/run/seed별 1회 선택
+- test 평가: validation에서 선택한 threshold를 고정 적용
+- `none`: non-none tactic이 하나도 선택되지 않을 때만 fallback으로 사용
+- 제외 필드: `tactic.rhetorical`, `tactic.rhetorical_labels`, heuristic rhetorical cue, Stage A cue, rationale text
+
+렌더링된 tactic label은 rationale와 case-study를 위한 설명용 diagnostic이며, paper-facing formal 성능 metric이 아닙니다. 관련 artifact는 다음 위치에 저장됩니다.
+
+```text
+result/predictions/{dataset}/{model}/{seed}/tactic_rhetorical_decoding.json
+```

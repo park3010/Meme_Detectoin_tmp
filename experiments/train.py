@@ -14,11 +14,23 @@ import torch.nn.functional as F
 
 from dataset import MemeDataset, NormalizedMemeDataset
 from experiments.early_stopping import EarlyStopping, metric_from_validation, prefix_metrics, save_checkpoint, save_training_log
-from experiments.evaluation import compute_harmfulness_metrics, evaluate_structured_predictions
+from experiments.evaluation import (
+    attach_formal_tactic_traces,
+    compute_harmfulness_metrics,
+    evaluate_structured_predictions,
+    evaluate_tactic_rhetorical_logits_only,
+)
 from experiments.prediction_io import save_predictions_and_metrics, stage_outputs_to_prediction_record
 from experiments.progress import progress_iter
-from experiments.run_manifest import build_data_snapshot, build_run_manifest, collect_backbone_state, current_command, write_run_manifest
+from experiments.run_manifest import build_data_snapshot, build_run_manifest, collect_backbone_state, current_command, sha256_file, write_run_manifest
 from experiments.splits import build_splits_for_dataset, label_to_int, load_split_file, save_splits, split_samples
+from experiments.tactic_decoding import (
+    extract_gold_tactic_labels,
+    extract_tactic_label_order,
+    extract_tactic_logits,
+    resolve_tactic_decoding_spec,
+    select_tactic_threshold,
+)
 from experiments.ablation_configs import LOGITS_LOSSES, STRUCTURED_AUXILIARY_LOSSES, default_component_state
 from module.baseline import CLIPTextConcatClassifier, ImageOnlyCLIPClassifier, TextOnlyEncoderClassifier
 from module.losses import StructuredMemeLoss, extract_supervision_from_annotation
@@ -264,7 +276,20 @@ def run_ours_experiment(config: OursRunConfig) -> dict[str, Any]:
     if training_log:
         training_log[-1]["stopped_early"] = bool(stopper.stopped_early)
     save_training_log(output_dir, training_log)
+    _, validation_predictions = evaluate_ours_pipeline(pipeline, validation_samples, config, device=device, desc="valid final")
+    write_jsonl(output_dir / "validation_predictions.jsonl", validation_predictions)
     metrics, predictions = evaluate_ours_pipeline(pipeline, materialized.get("test", []), config, device=device, desc="test")
+    metrics, predictions, validation_predictions = finalize_formal_tactic_evaluation(
+        config,
+        cfg,
+        output_dir,
+        metrics,
+        predictions,
+        validation_predictions,
+        best_checkpoint_path if config.save_best else None,
+        stopper.best_epoch,
+    )
+    write_jsonl(output_dir / "validation_predictions.jsonl", validation_predictions)
     save_predictions_and_metrics(output_dir, predictions, metrics)
     manifest = _ours_manifest(config, pipeline)
     write_run_manifest(output_dir, manifest)
@@ -300,6 +325,83 @@ def evaluate_ours_pipeline(
     structured = evaluate_structured_predictions(predictions)
     metrics = {**harmfulness, **structured}
     return metrics, predictions
+
+
+def finalize_formal_tactic_evaluation(
+    config: OursRunConfig,
+    cfg: dict[str, Any],
+    output_dir: Path,
+    metrics: dict[str, Any],
+    test_predictions: list[dict[str, Any]],
+    validation_predictions: list[dict[str, Any]],
+    checkpoint_path: Path | None,
+    best_epoch: int | None,
+) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Select validation threshold and attach formal logits-only tactic metrics."""
+
+    label_order = _first_tactic_label_order(validation_predictions) or _first_tactic_label_order(test_predictions)
+    spec = resolve_tactic_decoding_spec(
+        cfg,
+        vocab_path=config.vocab_path,
+        label_order=label_order or None,
+    )
+    validation_logits, validation_gold, validation_missing = _formal_tactic_inputs(validation_predictions)
+    threshold_selection = select_tactic_threshold(validation_logits, validation_gold, spec)
+    threshold = threshold_selection.selected_threshold
+
+    validation_predictions = attach_formal_tactic_traces(validation_predictions, spec, threshold)
+    test_predictions = attach_formal_tactic_traces(test_predictions, spec, threshold)
+    formal_metrics = evaluate_tactic_rhetorical_logits_only(
+        test_predictions,
+        threshold=threshold,
+        config=cfg,
+        vocab_path=config.vocab_path,
+    )
+    formal_metrics["tactic_rhetorical_threshold_source"] = "validation_grid_search"
+    formal_metrics["tactic_rhetorical_validation_macro_f1_at_selected_threshold"] = threshold_selection.validation_macro_f1
+    formal_metrics["tactic_rhetorical_validation_micro_f1_at_selected_threshold"] = threshold_selection.validation_micro_f1
+    formal_metrics["tactic_rhetorical_validation_eligible_sample_count"] = threshold_selection.eligible_validation_samples
+    if not validation_logits:
+        formal_metrics["tactic_rhetorical_formal_status"] = "blocked"
+        formal_metrics["tactic_rhetorical_blocked_reason"] = "missing_validation_logits"
+        formal_metrics["tactic_rhetorical_missing_validation_logits_count"] = validation_missing
+    metrics.update(formal_metrics)
+
+    artifact = {
+        "schema_version": "tactic_rhetorical_decoding_v1",
+        "dataset": config.dataset_name,
+        "run_name": config.model_name,
+        "seed": config.seed,
+        "checkpoint_selection": {
+            "checkpoint_path": str(checkpoint_path) if checkpoint_path else None,
+            "best_epoch": best_epoch,
+            "selection_metric": config.early_stop_metric,
+        },
+        "prediction_source": spec.prediction_source,
+        "rendered_labels_used": False,
+        "label_order": spec.label_order,
+        "non_none_labels": spec.non_none_labels,
+        "none_label": spec.none_label,
+        "threshold_policy": spec.threshold_policy,
+        "threshold_candidates": spec.threshold_candidates,
+        "selected_threshold": threshold,
+        "selection_metric": "macro_f1_non_none",
+        "validation_metrics": {
+            "macro_f1": threshold_selection.validation_macro_f1,
+            "micro_f1": threshold_selection.validation_micro_f1,
+            "eligible_sample_count": threshold_selection.eligible_validation_samples,
+            "missing_logits_count": validation_missing,
+        },
+        "candidate_results": threshold_selection.candidate_results,
+        "test_evaluation_policy": "fixed_validation_threshold",
+        "split_sha256": sha256_file(_resolved_split_path(config)),
+        "config_sha256": sha256_file(config.config_path),
+        "validation_predictions_path": "validation_predictions.jsonl",
+        "final_predictions_path": "final_predictions.jsonl",
+        "formal_trace_location": "evaluation.tactic_rhetorical_formal",
+    }
+    write_json(output_dir / "tactic_rhetorical_decoding.json", artifact)
+    return metrics, test_predictions, validation_predictions
 
 
 def configure_trainable_parameters(pipeline: HarmfulMemePipeline, config: OursRunConfig) -> None:
@@ -391,6 +493,28 @@ def _sample_weight(supervision: dict[str, Any], sample: dict[str, Any]) -> float
         return float(value)
     except (TypeError, ValueError):
         return 1.0
+
+
+def _formal_tactic_inputs(records: list[dict[str, Any]]) -> tuple[list[list[float]], list[list[str]], int]:
+    logits: list[list[float]] = []
+    gold: list[list[str]] = []
+    missing = 0
+    for record in records:
+        current = extract_tactic_logits(record)
+        if current is None:
+            missing += 1
+            continue
+        logits.append(current)
+        gold.append(extract_gold_tactic_labels(record))
+    return logits, gold, missing
+
+
+def _first_tactic_label_order(records: list[dict[str, Any]]) -> list[str]:
+    for record in records:
+        labels = extract_tactic_label_order(record)
+        if labels:
+            return labels
+    return []
 
 
 # =============================================================================

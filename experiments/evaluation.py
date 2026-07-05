@@ -9,6 +9,16 @@ from typing import Any, Iterable
 
 from experiments.prediction_io import load_prediction_records
 from experiments.progress import progress_iter
+from experiments.tactic_decoding import (
+    TacticDecodingSpec,
+    compute_tactic_logits_only_metrics,
+    decode_tactic_logits,
+    extract_gold_tactic_labels,
+    extract_tactic_label_order,
+    extract_tactic_logits,
+    resolve_tactic_decoding_spec,
+    select_tactic_threshold,
+)
 from utils.annotation_utils import parse_bool
 from utils.io import read_jsonl, write_json
 from utils.text_utils import jaccard_similarity
@@ -235,6 +245,10 @@ def evaluate_structured_predictions(
     )
     metrics["tactic_rhetorical_micro_f1"] = tactic_scores["micro_f1"]
     metrics["tactic_rhetorical_macro_f1"] = tactic_scores["macro_f1"]
+    metrics["tactic_rhetorical_legacy_prediction_source"] = "rendered_or_heuristic_legacy"
+    metrics["tactic_rhetorical_rendered_or_heuristic_legacy_micro_f1"] = tactic_scores["micro_f1"]
+    metrics["tactic_rhetorical_rendered_or_heuristic_legacy_macro_f1"] = tactic_scores["macro_f1"]
+    metrics.update(evaluate_tactic_rhetorical_logits_only(records))
     metrics["tactic_multimodal_relation_macro_f1"] = macro_f1(
         [record.get("gold_tactic", {}).get("tactic_multimodal_relation") for record in records],
         [record.get("tactic", {}).get("multimodal_relation") for record in records],
@@ -242,6 +256,136 @@ def evaluate_structured_predictions(
     evidence_scores = weak_evidence_scores(records, k=evidence_k, disable_tqdm=disable_tqdm)
     metrics.update(evidence_scores)
     return metrics
+
+
+def evaluate_tactic_rhetorical_logits_only(
+    records: list[dict[str, Any]],
+    *,
+    threshold: float | None = None,
+    threshold_selection_records: list[dict[str, Any]] | None = None,
+    config: dict[str, Any] | None = None,
+    vocab_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Evaluate formal rhetorical tactic metrics from trainable logits only.
+
+    This path intentionally ignores rendered fields such as ``tactic.rhetorical``
+    and heuristic cue lists. If no validation-selected or explicit threshold is
+    available, it reports a blocked status instead of falling back to rendering.
+    """
+
+    if not records:
+        spec = resolve_tactic_decoding_spec(config, vocab_path=vocab_path or "configs/label_vocab.yaml")
+        return _blocked_tactic_metrics(spec, reason="empty_records")
+
+    label_order = _first_tactic_label_order(records)
+    if not label_order and threshold_selection_records:
+        label_order = _first_tactic_label_order(threshold_selection_records)
+    spec = resolve_tactic_decoding_spec(
+        config,
+        vocab_path=vocab_path or "configs/label_vocab.yaml",
+        label_order=label_order or None,
+    )
+    logits, gold, missing_count = _formal_tactic_inputs(records)
+    if not logits:
+        blocked = _blocked_tactic_metrics(spec, reason="missing_tactic_logits")
+        blocked["tactic_rhetorical_missing_logits_count"] = missing_count
+        return blocked
+
+    selection = None
+    threshold_source = "fixed_override"
+    if threshold is None:
+        if threshold_selection_records is None:
+            blocked = _blocked_tactic_metrics(spec, reason="missing_validation_threshold")
+            blocked["tactic_rhetorical_available_logit_record_count"] = len(logits)
+            return blocked
+        validation_logits, validation_gold, validation_missing = _formal_tactic_inputs(threshold_selection_records)
+        if not validation_logits:
+            blocked = _blocked_tactic_metrics(spec, reason="missing_validation_logits")
+            blocked["tactic_rhetorical_missing_validation_logits_count"] = validation_missing
+            return blocked
+        selection = select_tactic_threshold(validation_logits, validation_gold, spec)
+        threshold = selection.selected_threshold
+        threshold_source = "validation_grid_search"
+
+    metrics = compute_tactic_logits_only_metrics(logits, gold, spec, float(threshold))
+    metrics["tactic_rhetorical_threshold_source"] = threshold_source
+    metrics["tactic_rhetorical_missing_logits_count"] = missing_count
+    if selection is not None:
+        metrics["tactic_rhetorical_validation_macro_f1_at_selected_threshold"] = selection.validation_macro_f1
+        metrics["tactic_rhetorical_validation_micro_f1_at_selected_threshold"] = selection.validation_micro_f1
+        metrics["tactic_rhetorical_validation_eligible_sample_count"] = selection.eligible_validation_samples
+    return metrics
+
+
+def attach_formal_tactic_traces(
+    records: list[dict[str, Any]],
+    spec: TacticDecodingSpec,
+    threshold: float,
+) -> list[dict[str, Any]]:
+    """Attach evaluation-only formal tactic traces to prediction records."""
+
+    traced: list[dict[str, Any]] = []
+    for record in records:
+        updated = dict(record)
+        evaluation = dict(updated.get("evaluation") or {})
+        logits = extract_tactic_logits(updated)
+        if logits is None:
+            trace = {
+                "prediction_source": spec.prediction_source,
+                "threshold": float(threshold),
+                "predicted_non_none_labels": [],
+                "predicted_labels_with_none_fallback": [],
+                "predicted_none": None,
+                "rendered_labels_used": False,
+                "status": "blocked",
+                "blocked_reason": "missing_tactic_logits",
+            }
+        else:
+            trace = decode_tactic_logits(logits, spec, threshold)
+            trace["status"] = "ready"
+        evaluation["tactic_rhetorical_formal"] = trace
+        updated["evaluation"] = evaluation
+        traced.append(updated)
+    return traced
+
+
+def _formal_tactic_inputs(records: list[dict[str, Any]]) -> tuple[list[list[float]], list[list[str]], int]:
+    logits: list[list[float]] = []
+    gold: list[list[str]] = []
+    missing_count = 0
+    for record in records:
+        current = extract_tactic_logits(record)
+        if current is None:
+            missing_count += 1
+            continue
+        logits.append(current)
+        gold.append(extract_gold_tactic_labels(record))
+    return logits, gold, missing_count
+
+
+def _first_tactic_label_order(records: list[dict[str, Any]]) -> list[str]:
+    for record in records:
+        values = extract_tactic_label_order(record)
+        if values:
+            return values
+    return []
+
+
+def _blocked_tactic_metrics(spec: TacticDecodingSpec, reason: str) -> dict[str, Any]:
+    return {
+        "tactic_rhetorical_formal_status": "blocked",
+        "tactic_rhetorical_prediction_source": spec.prediction_source,
+        "tactic_rhetorical_rendered_labels_used": False,
+        "tactic_rhetorical_blocked_reason": reason,
+        "tactic_rhetorical_macro_f1_logits_only": None,
+        "tactic_rhetorical_micro_f1_logits_only": None,
+        "tactic_rhetorical_none_f1": None,
+        "tactic_rhetorical_exact_match_ratio": None,
+        "tactic_rhetorical_eligible_sample_count": 0,
+        "tactic_rhetorical_non_none_label_count": len(spec.non_none_labels),
+        "tactic_rhetorical_validation_selected_threshold": None,
+        "tactic_rhetorical_validation_macro_f1_at_selected_threshold": None,
+    }
 
 
 def evaluate_prediction_file(
@@ -464,6 +608,8 @@ __all__ = [
     "metrics_to_csv_row",
     "summarize_mean_std",
     "evaluate_structured_predictions",
+    "evaluate_tactic_rhetorical_logits_only",
+    "attach_formal_tactic_traces",
     "evaluate_prediction_file",
     "evaluate_harmfulness_prediction_file",
     "write_structured_aggregate_tables",

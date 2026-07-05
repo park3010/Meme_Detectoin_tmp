@@ -10,13 +10,15 @@ from common import ROOT  # noqa: F401 - importing common also adds the repositor
 
 from experiments.ablation_configs import ABLATION_MODES
 from experiments.ablation_runner import run_ablation_experiment, run_fusion_experiment
-from experiments.evaluation import evaluate_prediction_file
+from experiments.evaluation import attach_formal_tactic_traces, evaluate_prediction_file, evaluate_tactic_rhetorical_logits_only
 from experiments.pipeline_audit import audit_run_artifacts, format_audit_summary, write_audit_report
 from experiments.experiment_suite import run_suite
 from experiments.preflight import format_preflight_summary, run_preflight
 from experiments.splits import DEFAULT_SEEDS, normalize_dataset_names
+from experiments.tactic_decoding import extract_gold_tactic_labels, extract_tactic_label_order, extract_tactic_logits, resolve_tactic_decoding_spec, select_tactic_threshold
 from experiments.train import BaselineRunConfig, OursRunConfig, run_baseline_experiment, run_ours_experiment
 from module.runner import PipelineRunner
+from utils.io import load_yaml, read_jsonl, write_json, write_jsonl
 
 
 DEFAULT_CONFIG = str(ROOT / "configs" / "config.yaml")
@@ -50,6 +52,13 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--model", default="ours_full")
     evaluate.add_argument("--seed", type=int, default=42)
     evaluate.add_argument("--prediction-file", default=None)
+    evaluate.add_argument("--validation-predictions", default=None)
+    evaluate.add_argument("--test-predictions", default=None)
+    evaluate.add_argument("--formal-tactic-metrics", action="store_true")
+    evaluate.add_argument("--tactic-threshold", type=float, default=None)
+    evaluate.add_argument("--decoding-artifact", default=None)
+    evaluate.add_argument("--config", default=DEFAULT_CONFIG)
+    evaluate.add_argument("--label-set", choices=["full", "clean"], default="clean")
     evaluate.add_argument("--result-root", default="result")
     evaluate.add_argument("--output-root", default="result/metrics")
     evaluate.add_argument("--disable-tqdm", action="store_true")
@@ -279,10 +288,47 @@ def _cmd_stage(args: argparse.Namespace) -> None:
 
 def _cmd_evaluate(args: argparse.Namespace) -> None:
     prediction_path = (
-        Path(args.prediction_file)
-        if args.prediction_file
+        Path(args.test_predictions or args.prediction_file)
+        if args.test_predictions or args.prediction_file
         else Path(args.result_root) / "predictions" / args.dataset / args.model / str(args.seed) / "final_predictions.jsonl"
     )
+    if args.formal_tactic_metrics:
+        cfg = load_yaml(args.config)
+        test_records = read_jsonl(prediction_path)
+        validation_records = read_jsonl(args.validation_predictions) if args.validation_predictions else None
+        metrics = evaluate_tactic_rhetorical_logits_only(
+            test_records,
+            threshold=args.tactic_threshold,
+            threshold_selection_records=validation_records,
+            config=cfg,
+        )
+        threshold = args.tactic_threshold if args.tactic_threshold is not None else metrics.get("tactic_rhetorical_validation_selected_threshold")
+        label_order = _first_tactic_label_order(validation_records or []) or _first_tactic_label_order(test_records)
+        spec = resolve_tactic_decoding_spec(cfg, label_order=label_order or None)
+        if threshold is not None:
+            traced = attach_formal_tactic_traces(test_records, spec, float(threshold))
+            trace_path = prediction_path.parent / "formal_tactic_predictions.jsonl"
+            write_jsonl(trace_path, traced)
+        else:
+            trace_path = None
+        artifact_path = Path(args.decoding_artifact) if args.decoding_artifact else prediction_path.parent / "tactic_rhetorical_decoding_eval.json"
+        artifact = _formal_tactic_cli_artifact(
+            args,
+            cfg,
+            spec,
+            metrics,
+            threshold,
+            prediction_path,
+            validation_records,
+            trace_path,
+        )
+        write_json(artifact_path, artifact)
+        output_dir = Path(args.output_root)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        write_json(output_dir / f"structured_interpretation_{args.dataset}.json", metrics)
+        print(f"{args.dataset}/{args.model}/seed={args.seed}: formal tactic metrics saved to {artifact_path}")
+        print(metrics)
+        return
     metrics = evaluate_prediction_file(
         prediction_path,
         dataset=args.dataset,
@@ -291,6 +337,68 @@ def _cmd_evaluate(args: argparse.Namespace) -> None:
     )
     print(f"{args.dataset}/{args.model}/seed={args.seed}: structured metrics saved to {args.output_root}")
     print(metrics)
+
+
+def _formal_tactic_cli_artifact(
+    args: argparse.Namespace,
+    cfg: dict[str, Any],
+    spec: Any,
+    metrics: dict[str, Any],
+    threshold: float | None,
+    test_prediction_path: Path,
+    validation_records: list[dict[str, Any]] | None,
+    trace_path: Path | None,
+) -> dict[str, Any]:
+    selection = None
+    if args.tactic_threshold is None and validation_records:
+        validation_logits, validation_gold = [], []
+        for record in validation_records:
+            logits = extract_tactic_logits(record)
+            if logits is not None:
+                validation_logits.append(logits)
+                validation_gold.append(extract_gold_tactic_labels(record))
+        selection = select_tactic_threshold(validation_logits, validation_gold, spec)
+    return {
+        "schema_version": "tactic_rhetorical_decoding_v1",
+        "dataset": args.dataset,
+        "run_name": args.model,
+        "seed": args.seed,
+        "checkpoint_selection": {
+            "checkpoint_path": None,
+            "best_epoch": None,
+            "selection_metric": "external_evaluate_cli",
+        },
+        "prediction_source": spec.prediction_source,
+        "rendered_labels_used": False,
+        "label_order": spec.label_order,
+        "non_none_labels": spec.non_none_labels,
+        "none_label": spec.none_label,
+        "threshold_policy": "fixed_override" if args.tactic_threshold is not None else spec.threshold_policy,
+        "threshold_candidates": spec.threshold_candidates,
+        "selected_threshold": threshold,
+        "selection_metric": "fixed_override" if args.tactic_threshold is not None else "macro_f1_non_none",
+        "validation_metrics": {
+            "macro_f1": selection.validation_macro_f1 if selection else metrics.get("tactic_rhetorical_validation_macro_f1_at_selected_threshold"),
+            "micro_f1": selection.validation_micro_f1 if selection else metrics.get("tactic_rhetorical_validation_micro_f1_at_selected_threshold"),
+            "eligible_sample_count": selection.eligible_validation_samples if selection else metrics.get("tactic_rhetorical_validation_eligible_sample_count"),
+        },
+        "test_evaluation_policy": "fixed_validation_threshold" if args.tactic_threshold is None else "fixed_override",
+        "config_sha256": None,
+        "split_sha256": None,
+        "validation_predictions_path": args.validation_predictions,
+        "final_predictions_path": str(test_prediction_path),
+        "formal_predictions_path": str(trace_path) if trace_path else None,
+        "formal_trace_location": "evaluation.tactic_rhetorical_formal",
+        "label_set": args.label_set,
+    }
+
+
+def _first_tactic_label_order(records: list[dict[str, Any]]) -> list[str]:
+    for record in records:
+        labels = extract_tactic_label_order(record)
+        if labels:
+            return labels
+    return []
 
 
 def _cmd_ablation(args: argparse.Namespace) -> None:

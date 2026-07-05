@@ -30,19 +30,19 @@ def resolve_metric_contract(config: dict[str, Any], vocab_path: str | Path = "co
 
     tactic = contract["fields"].get("tactic_rhetorical")
     if tactic:
-        tactic["formal_prediction_source"] = "trainable_tactic_logits_sigmoid"
+        tactic["prediction_source"] = "tactic_logits_sigmoid"
+        tactic["formal_prediction_source"] = "tactic_logits_sigmoid"
         tactic["not_allowed_prediction_sources"] = [
             "top1_logits_plus_heuristic_cues",
             "rationale_text",
             "stage_a_rhetorical_heuristics",
         ]
-        tactic["implementation_status"] = "blocked"
-        tactic["missing_capabilities"] = [
-            "current structured evaluator consumes rendered tactic.rhetorical labels",
-            "validation-selected sigmoid threshold path for tactic logits is not yet exposed",
-        ]
-        contract["implementation_status"] = "partially_ready"
-        contract["missing_capabilities"].extend(tactic["missing_capabilities"])
+        tactic["rendered_label_field_forbidden_for_metric"] = True
+        tactic["threshold_policy"] = tactic.get("threshold_policy", "validation_grid_search")
+        tactic["none_label_policy"] = "fallback_when_no_non_none_label_selected"
+        tactic["decoding_artifact_path"] = "tactic_rhetorical_decoding.json"
+        tactic["implementation_status"] = "ready"
+        tactic["missing_capabilities"] = []
     return contract
 
 

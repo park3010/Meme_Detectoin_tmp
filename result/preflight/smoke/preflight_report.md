@@ -5,7 +5,7 @@
 - Strict: `False`
 - Config: `configs/config.yaml`
 - Config SHA256: `f7bd293ca939a0c6cc8d76440d3f4b2ec4cb67de1b1fe28df6c2b590e53f7556`
-- Created: `2026-07-02T16:07:42.692805+00:00`
+- Created: `2026-07-05T07:48:12.527316+00:00`
 
 ## Overall decision
 **PASS_WITH_WARNINGS**
@@ -28,8 +28,8 @@
 - Provenance note: `fallback candidate != retrieved external knowledge; generated hypothesis != retrieved external knowledge`
 
 ## Metric contract
-- Implementation status: `partially_ready`
-- Missing capabilities: `['current structured evaluator consumes rendered tactic.rhetorical labels', 'validation-selected sigmoid threshold path for tactic logits is not yet exposed']`
+- Implementation status: `ready`
+- Missing capabilities: `[]`
 
 ## Normalized annotation snapshot
 - Snapshot artifact: `result/preflight/smoke/normalized_annotation_snapshot.json`

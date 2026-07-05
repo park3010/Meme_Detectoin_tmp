@@ -167,9 +167,11 @@ def test_metric_contract_forbids_rendered_rhetorical_labels():
     contract = resolve_metric_contract(load_yaml("configs/config.yaml"), vocab_path="configs/label_vocab.yaml")
 
     tactic = contract["fields"]["tactic_rhetorical"]
-    assert tactic["prediction_source"] == "logits_only"
+    assert tactic["prediction_source"] == "tactic_logits_sigmoid"
     assert tactic["rendered_label_field_forbidden_for_metric"] is True
-    assert tactic["implementation_status"] == "blocked"
+    assert tactic["none_label_policy"] == "fallback_when_no_non_none_label_selected"
+    assert tactic["implementation_status"] == "ready"
+    assert contract["implementation_status"] == "ready"
     json.dumps(contract)
 
 

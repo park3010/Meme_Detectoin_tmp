@@ -33,6 +33,11 @@ def stage_outputs_to_prediction_record(
     pred_label = 1 if structured.get("harmfulness", {}).get("label") == "harmful" else 0
     normalized_annotation = sample.get("normalized_annotation") or {}
     source_annotation = normalized_annotation.get("source_annotation", {}) if isinstance(normalized_annotation, dict) else {}
+    training_hooks = structured.get("training_hooks", {}) or {}
+    output_provenance = structured.get("output_provenance", {}) or {}
+    label_spaces = output_provenance.get("label_spaces", {}) if isinstance(output_provenance, dict) else {}
+    tactic_logits = _vector_list(training_hooks.get("tactic_logits"))
+    tactic_label_order = [str(label) for label in label_spaces.get("tactic", [])]
 
     record = {
         "sample_id": sample.get("sample_id"),
@@ -61,6 +66,8 @@ def stage_outputs_to_prediction_record(
             "background_knowledge_needed": supervision.get("background_knowledge_needed"),
         },
         "tactic": structured.get("tactic", {}),
+        "tactic_rhetorical_logits": tactic_logits,
+        "tactic_rhetorical_label_order": tactic_label_order,
         "gold_tactic": {
             "tactic_rhetorical": supervision.get("tactic_rhetorical"),
             "tactic_multimodal_relation": supervision.get("tactic_multimodal_relation"),
@@ -72,8 +79,8 @@ def stage_outputs_to_prediction_record(
         "gold_normalized_schema_version": source_annotation.get("annotation_schema_version"),
         "supporting_evidence": structured.get("supporting_evidence", {}),
         "rationale": structured.get("rationale", ""),
-        "output_provenance": structured.get("output_provenance", {}),
-        "training_hooks": structured.get("training_hooks", {}),
+        "output_provenance": output_provenance,
+        "training_hooks": training_hooks,
         "stage_metadata": compact_stage_metadata(outputs),
     }
     if extra:
@@ -132,3 +139,18 @@ def _evidence_text_list(value: Any) -> list[str]:
     if isinstance(value, tuple):
         return [str(item) for item in value if str(item).strip()]
     return [str(value)]
+
+
+def _vector_list(value: Any) -> list[float]:
+    """Return a full flat numeric vector for metric-critical logits."""
+
+    if value is None:
+        return []
+    if isinstance(value, torch.Tensor):
+        return [float(item) for item in value.detach().cpu().flatten().tolist()]
+    if isinstance(value, dict):
+        candidate = value.get("values") if isinstance(value.get("values"), list) else value.get("preview")
+        return [float(item) for item in candidate] if isinstance(candidate, list) else []
+    if isinstance(value, (list, tuple)):
+        return [float(item) for item in value]
+    return []

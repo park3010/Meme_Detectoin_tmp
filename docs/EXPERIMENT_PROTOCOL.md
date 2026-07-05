@@ -108,6 +108,58 @@ Suite-level tracking is written to:
 result/experiment_suites/<suite_name>/suite_manifest.json
 ```
 
+## Formal `tactic_rhetorical` Metric
+
+The paper-facing rhetorical tactic metric is logits-only.
+
+- Source: trainable `TacticHead` tactic logits serialized as `tactic_rhetorical_logits`.
+- Probability: sigmoid over the trainable logits.
+- Threshold: one global threshold selected on validation macro-F1 for each dataset/run/seed/best checkpoint.
+- Test: the selected validation threshold is applied unchanged to test predictions.
+- Label universe: non-ignored `tactic_rhetorical` labels from the canonical vocab / head label order.
+- `none`: fallback only when no non-none label reaches threshold; it is never independently thresholded.
+- Rendered fields excluded: `tactic.rhetorical`, `tactic.rhetorical_labels`, heuristic rhetorical cues, Stage A cues, rationale text, and top-1-plus-heuristic rendering.
+
+The historical rendered tactic metrics remain legacy diagnostics. They are useful for explanation-output sanity checks, but they are not paper-facing performance metrics.
+
+Training finalization writes:
+
+```text
+result/predictions/<dataset>/<run_name>/<seed>/validation_predictions.jsonl
+result/predictions/<dataset>/<run_name>/<seed>/final_predictions.jsonl
+result/predictions/<dataset>/<run_name>/<seed>/tactic_rhetorical_decoding.json
+```
+
+The validation and test prediction files keep the existing `tactic` payload unchanged and add an evaluation-only trace:
+
+```text
+evaluation.tactic_rhetorical_formal
+```
+
+The formal metrics are named with an explicit logits-only suffix:
+
+- `tactic_rhetorical_macro_f1_logits_only`
+- `tactic_rhetorical_micro_f1_logits_only`
+- `tactic_rhetorical_none_f1`
+- `tactic_rhetorical_exact_match_ratio`
+- `tactic_rhetorical_eligible_sample_count`
+- `tactic_rhetorical_validation_selected_threshold`
+- `tactic_rhetorical_validation_macro_f1_at_selected_threshold`
+
+Standalone evaluation can reproduce the formal metric from saved predictions:
+
+```bash
+python scripts/run.py evaluate \
+  --dataset harm_c \
+  --validation-predictions result/predictions/harm_c/ours_full/42/validation_predictions.jsonl \
+  --test-predictions result/predictions/harm_c/ours_full/42/final_predictions.jsonl \
+  --formal-tactic-metrics \
+  --config configs/config.yaml \
+  --label-set clean
+```
+
+By default, standalone evaluation writes `tactic_rhetorical_decoding_eval.json` beside the test prediction file. Pass `--decoding-artifact` only when you intentionally want a different path.
+
 ## Ablation Contracts
 
 Ablation semantics are declared in `experiments/ablation_configs.py` as `AblationContract` objects. The currently supported canonical modes are:

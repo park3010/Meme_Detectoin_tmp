@@ -42,6 +42,7 @@ python scripts/run.py preflight --profile smoke --config configs/config.yaml --d
 - Dataset stats: `result/dataset_stats/`
 - Splits: `result/splits/`
 - Predictions and checkpoints: `result/predictions/{dataset}/{model}/{seed}/`
+- Formal tactic decoding artifacts: `result/predictions/{dataset}/{model}/{seed}/tactic_rhetorical_decoding.json`
 - Metrics: `result/metrics/`
 - Analysis exports: `result/analysis/`
 - Paper tables: `result/paper_tables/`
@@ -53,3 +54,5 @@ Ablation runners may apply evaluation-time transformations unless retraining is 
 The protocol-locked suite runner treats `w_o_structured_auxiliary` as a train-time loss ablation, while most other stage ablations remain evaluation-time transformations.
 
 Main experiment suites should be launched only after `main_experiment` strict preflight passes. In the default offline configuration, fallback encoders are acceptable for smoke checks but block paper-quality main experiments until local pretrained assets are configured.
+
+Formal `tactic_rhetorical` metrics are computed from trainable tactic logits only. The validation split selects a sigmoid threshold once, the fixed threshold is applied to the test split, and rendered top-1/heuristic tactic labels remain explanation-only legacy diagnostics.

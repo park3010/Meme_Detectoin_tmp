@@ -17,6 +17,7 @@ def test_passing_pipeline_artifacts_detect_logits_and_provenance(tmp_path: Path)
     assert result["training_log"]["auxiliary_loss_checks"]["tactic_multimodal_relation"]["gradient_ok"] is True
     assert result["predictions"]["contract_pass_count"] == 1
     assert result["metrics"]["metrics_usable"] is True
+    assert result["formal_tactic_decoding"]["passed"] is True
 
     report = write_audit_report(result, run_root / "pipeline_audit_report.md")
     assert report.exists()
@@ -167,6 +168,29 @@ def test_evaluation_time_ablation_manifest_does_not_require_training_log(tmp_pat
     assert result["ablation_contract"]["ablation_contract_passed"] is True
 
 
+def test_formal_tactic_audit_rejects_rendered_label_artifact(tmp_path: Path):
+    run_root = _write_artifacts(tmp_path, metrics={"accuracy": 1.0, "macro_f1": 1.0})
+    artifact = json.loads((run_root / "tactic_rhetorical_decoding.json").read_text(encoding="utf-8"))
+    artifact["rendered_labels_used"] = True
+    (run_root / "tactic_rhetorical_decoding.json").write_text(json.dumps(artifact), encoding="utf-8")
+
+    result = audit_run_artifacts(run_root, strict=True, require_nonempty_metrics=True)
+
+    assert result["passed"] is False
+    assert any("rendered_labels_used=false" in error for error in result["errors"])
+
+
+def test_formal_tactic_audit_rejects_trace_threshold_mismatch(tmp_path: Path):
+    record = _prediction_record()
+    record["evaluation"]["tactic_rhetorical_formal"]["threshold"] = 0.7
+    run_root = _write_artifacts(tmp_path, prediction=record, metrics={"accuracy": 1.0, "macro_f1": 1.0})
+
+    result = audit_run_artifacts(run_root, strict=True, require_nonempty_metrics=True)
+
+    assert result["passed"] is False
+    assert any("trace threshold differs" in error for error in result["errors"])
+
+
 def _write_artifacts(
     tmp_path: Path,
     *,
@@ -217,7 +241,37 @@ def _write_artifacts(
         json.dumps(prediction or _prediction_record()) + "\n",
         encoding="utf-8",
     )
-    (run_root / "metrics.json").write_text(json.dumps(metrics or {"accuracy": 0.75, "macro_f1": 0.7}), encoding="utf-8")
+    metrics_obj = _metrics_with_formal(metrics, split_sizes)
+    (run_root / "metrics.json").write_text(json.dumps(metrics_obj), encoding="utf-8")
+    (run_root / "tactic_rhetorical_decoding.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "tactic_rhetorical_decoding_v1",
+                "dataset": "harm_c",
+                "run_name": "ours_full",
+                "seed": 42,
+                "checkpoint_selection": {
+                    "checkpoint_path": "best_model.pt",
+                    "best_epoch": 1,
+                    "selection_metric": "val_macro_f1",
+                },
+                "prediction_source": "tactic_logits_sigmoid",
+                "rendered_labels_used": False,
+                "label_order": ["sarcasm_irony", "stereotype", "none"],
+                "non_none_labels": ["sarcasm_irony", "stereotype"],
+                "none_label": "none",
+                "threshold_policy": "validation_grid_search",
+                "threshold_candidates": [0.5],
+                "selected_threshold": 0.5,
+                "selection_metric": "macro_f1_non_none",
+                "validation_metrics": {"macro_f1": 0.5, "micro_f1": 1.0, "eligible_sample_count": 1},
+                "test_evaluation_policy": "fixed_validation_threshold",
+                "split_sha256": "abc",
+                "config_sha256": "def",
+            }
+        ),
+        encoding="utf-8",
+    )
     return run_root
 
 
@@ -243,6 +297,8 @@ def _prediction_record() -> dict:
     }
     return {
         "sample_id": "sample-1",
+        "tactic_rhetorical_logits": [3.0, -3.0, 0.0],
+        "tactic_rhetorical_label_order": ["sarcasm_irony", "stereotype", "none"],
         "target": {
             "presence": "explicit",
             "presence_scores": {"explicit": 0.8, "implicit": 0.1, "none": 0.1},
@@ -320,4 +376,51 @@ def _prediction_record() -> dict:
             "stage_d": {"attention_trace": {"top_external_index": 0}},
             "stage_e": {"stage_d_trace_available": True},
         },
+        "evaluation": {
+            "tactic_rhetorical_formal": {
+                "prediction_source": "tactic_logits_sigmoid",
+                "threshold": 0.5,
+                "predicted_non_none_labels": ["sarcasm_irony"],
+                "predicted_labels_with_none_fallback": ["sarcasm_irony"],
+                "predicted_none": False,
+                "rendered_labels_used": False,
+            }
+        },
     }
+
+
+def _metrics_with_formal(metrics: dict | None, split_sizes: dict[str, int] | None) -> dict:
+    if metrics is None:
+        metrics_obj = {"accuracy": 0.75, "macro_f1": 0.7}
+    else:
+        metrics_obj = dict(metrics)
+    if "tactic_rhetorical_formal_status" in metrics_obj:
+        return metrics_obj
+    empty_split = bool(split_sizes and (split_sizes.get("valid", 0) == 0 or split_sizes.get("test", 0) == 0))
+    if empty_split:
+        metrics_obj.update(
+            {
+                "tactic_rhetorical_formal_status": "no_eligible_samples",
+                "tactic_rhetorical_prediction_source": "tactic_logits_sigmoid",
+                "tactic_rhetorical_rendered_labels_used": False,
+                "tactic_rhetorical_macro_f1_logits_only": None,
+                "tactic_rhetorical_micro_f1_logits_only": None,
+                "tactic_rhetorical_none_f1": None,
+                "tactic_rhetorical_exact_match_ratio": None,
+                "tactic_rhetorical_eligible_sample_count": 0,
+            }
+        )
+    else:
+        metrics_obj.update(
+            {
+                "tactic_rhetorical_formal_status": "ready",
+                "tactic_rhetorical_prediction_source": "tactic_logits_sigmoid",
+                "tactic_rhetorical_rendered_labels_used": False,
+                "tactic_rhetorical_macro_f1_logits_only": 0.5,
+                "tactic_rhetorical_micro_f1_logits_only": 1.0,
+                "tactic_rhetorical_none_f1": 1.0,
+                "tactic_rhetorical_exact_match_ratio": 1.0,
+                "tactic_rhetorical_eligible_sample_count": 1,
+            }
+        )
+    return metrics_obj
