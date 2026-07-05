@@ -78,10 +78,12 @@ class HarmfulMemePipeline(nn.Module):
             clip_cache_dir=clip_cfg.get("cache_dir"),
             clip_local_files_only=bool(clip_cfg.get("local_files_only", True)),
             clip_allow_download=bool(clip_cfg.get("allow_download", False)),
+            clip_asset_mode=clip_cfg.get("asset_mode"),
             text_checkpoint_path=text_cfg.get("checkpoint_path"),
             text_cache_dir=text_cfg.get("cache_dir"),
             text_local_files_only=bool(text_cfg.get("local_files_only", True)),
             text_allow_download=bool(text_cfg.get("allow_download", False)),
+            text_asset_mode=text_cfg.get("asset_mode"),
         )
         self.stage_b = ExternalKnowledgeAcquisition(
             hidden_dim=hidden_dim,
@@ -94,6 +96,7 @@ class HarmfulMemePipeline(nn.Module):
             text_cache_dir=text_cfg.get("cache_dir"),
             text_local_files_only=bool(text_cfg.get("local_files_only", True)),
             text_allow_download=bool(text_cfg.get("allow_download", False)),
+            text_asset_mode=text_cfg.get("asset_mode"),
             max_documents=retriever_cfg.get("max_documents"),
             use_cross_encoder_rerank=bool(retriever_cfg.get("use_cross_encoder_rerank", True)),
             device=device,

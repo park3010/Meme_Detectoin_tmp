@@ -37,18 +37,22 @@ backbone:
   clip:
     prefer_pretrained: true
     model_name: ViT-B-32
+    asset_mode: local_checkpoint
     pretrained_tag: null
-    checkpoint_path: null
-    cache_dir: null
+    checkpoint_path: assets/pretrained/vision/open_clip_vit_b_32/checkpoint.pt
+    cache_dir: assets/pretrained/vision/open_clip_vit_b_32/cache
     local_files_only: true
     allow_download: false
+    require_pretrained_for_main: true
   text:
     prefer_transformers: true
     model_name: microsoft/deberta-v3-base
-    checkpoint_path: null
-    cache_dir: null
+    asset_mode: local_directory
+    checkpoint_path: assets/pretrained/text/deberta_v3_base
+    cache_dir: assets/pretrained/text/deberta_v3_base/cache
     local_files_only: true
     allow_download: false
+    require_pretrained_for_main: true
   detector:
     mode: heuristic
   retriever:

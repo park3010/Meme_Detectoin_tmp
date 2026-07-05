@@ -14,6 +14,7 @@ from experiments.evaluation import attach_formal_tactic_traces, evaluate_predict
 from experiments.pipeline_audit import audit_run_artifacts, format_audit_summary, write_audit_report
 from experiments.experiment_suite import run_suite
 from experiments.preflight import format_preflight_summary, run_preflight
+from experiments.pretrained_assets import init_asset_layout, verify_pretrained_assets, write_verification_artifacts
 from experiments.splits import DEFAULT_SEEDS, normalize_dataset_names
 from experiments.tactic_decoding import extract_gold_tactic_labels, extract_tactic_label_order, extract_tactic_logits, resolve_tactic_decoding_spec, select_tactic_threshold
 from experiments.train import BaselineRunConfig, OursRunConfig, run_baseline_experiment, run_ours_experiment
@@ -46,6 +47,18 @@ def build_parser() -> argparse.ArgumentParser:
     stage.add_argument("--device", default=None)
     stage.add_argument("--no-save", action="store_true")
     stage.set_defaults(func=_cmd_stage)
+
+    assets = subparsers.add_parser("assets", help="Inspect and verify local pretrained assets.")
+    asset_subparsers = assets.add_subparsers(dest="asset_command", required=True)
+    for name in ["inspect", "init-layout", "verify"]:
+        asset_parser = asset_subparsers.add_parser(name, help=f"{name} pretrained asset state.")
+        asset_parser.add_argument("--config", default=DEFAULT_CONFIG)
+        asset_parser.add_argument("--profile", default="smoke", choices=["smoke", "main_experiment"])
+        asset_parser.add_argument("--output-root", default="result")
+        asset_parser.add_argument("--strict", action="store_true")
+        asset_parser.add_argument("--write-manifests", action="store_true")
+        asset_parser.add_argument("--allow-fallback", action="store_true")
+        asset_parser.set_defaults(func=_cmd_assets)
 
     evaluate = subparsers.add_parser("evaluate", help="Evaluate structured prediction outputs.")
     evaluate.add_argument("--dataset", required=True)
@@ -284,6 +297,35 @@ def _cmd_stage(args: argparse.Namespace) -> None:
     runner = PipelineRunner(args.config, overrides=overrides)
     until = args.until.lower().replace("stage_", "")
     runner.run(dataset_names=args.dataset, limit=args.limit, run_until=until, save=not args.no_save)
+
+
+def _cmd_assets(args: argparse.Namespace) -> None:
+    cfg = load_yaml(args.config)
+    strict = bool(args.strict or args.profile == "main_experiment")
+    if args.asset_command == "init-layout":
+        paths = init_asset_layout(cfg)
+        print("Initialized pretrained asset layout:")
+        for path in paths:
+            print(f"- {path}")
+        return
+    result = verify_pretrained_assets(cfg, strict=strict)
+    if args.asset_command == "verify":
+        paths = write_verification_artifacts(
+            result,
+            output_root=args.output_root,
+            profile=args.profile,
+            write_manifests=args.write_manifests,
+        )
+        print(f"Pretrained asset verification: {'PASS' if result.passed else 'BLOCKED'}")
+        print(f"Artifact: {paths['pretrained_asset_audit']}")
+    else:
+        print(f"Pretrained asset inspection: {'PASS' if result.passed else 'WARNINGS_OR_BLOCKED'}")
+    for issue in result.warnings[:8]:
+        print(f"WARNING {issue['code']}: {issue['message']}")
+    for issue in result.errors[:8]:
+        print(f"ERROR {issue['code']}: {issue['message']}")
+    if result.errors and strict and not args.allow_fallback:
+        raise SystemExit(1)
 
 
 def _cmd_evaluate(args: argparse.Namespace) -> None:

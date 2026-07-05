@@ -14,6 +14,7 @@ from dataset import MemeDataset
 from dataset.labels import LabelVocab, NormalizedLabelStore, iter_normalized_label_paths
 from experiments.metric_contract import resolve_metric_contract, write_metric_contract_artifact
 from experiments.prediction_io import compact_stage_metadata
+from experiments.pretrained_assets import verify_pretrained_assets
 from experiments.run_manifest import sha256_file
 from experiments.splits import build_splits_for_dataset, label_to_int, load_official_split_ids, load_split_file, normalize_dataset_names, save_splits
 from module.backbone.text import TextEncoderWrapper
@@ -89,6 +90,11 @@ def run_preflight(
 
     backbone = inspect_backbone_readiness(cfg, profile_cfg, device=device, allow_download=allow_download)
     _add_backbone_issues(backbone, profile_cfg, issues, allow_fallback=allow_fallback, profile=profile)
+    asset_audit = verify_pretrained_assets(
+        cfg,
+        strict=bool(profile_cfg.get("require_local_assets", False) or (profile == "main_experiment" and strict)),
+    )
+    _add_asset_issues(asset_audit.to_dict(), issues)
 
     split_report = inspect_split_integrity(
         cfg,
@@ -128,6 +134,7 @@ def run_preflight(
         "decision": decision,
         "profile_description": profile_cfg.get("description", ""),
         "backbone_readiness": backbone,
+        "pretrained_asset_audit": asset_audit.to_dict(),
         "dataset_metric_eligibility": eligibility,
         "split_integrity": split_report,
         "retrieval_corpus_audit": retrieval,
@@ -193,6 +200,7 @@ def inspect_backbone_readiness(
         cache_dir=clip_cfg.get("cache_dir"),
         local_files_only=bool(clip_cfg.get("local_files_only", True)),
         allow_download=bool(clip_cfg.get("allow_download", False)),
+        asset_mode=clip_cfg.get("asset_mode"),
     )
     text = TextEncoderWrapper(
         hidden_dim=hidden_dim,
@@ -203,6 +211,7 @@ def inspect_backbone_readiness(
         cache_dir=text_cfg.get("cache_dir"),
         local_files_only=bool(text_cfg.get("local_files_only", True)),
         allow_download=bool(text_cfg.get("allow_download", False)),
+        asset_mode=text_cfg.get("asset_mode"),
     )
     vision_state = vision.readiness_state()
     text_state = text.readiness_state()
@@ -498,6 +507,7 @@ def write_preflight_artifacts(
     artifacts["split_integrity_report"] = out / "split_integrity_report.json"
     artifacts["retrieval_corpus_audit"] = out / "retrieval_corpus_audit.json"
     artifacts["metric_contract"] = out / "metric_contract.json"
+    artifacts["pretrained_asset_audit"] = out / "pretrained_asset_audit.json"
     artifacts["normalized_annotation_snapshot"] = out / "normalized_annotation_snapshot.json"
     write_json(artifacts["backbone_readiness"], checks["backbone_readiness"])
     write_json(artifacts["dataset_metric_eligibility_json"], checks["dataset_metric_eligibility"])
@@ -505,6 +515,7 @@ def write_preflight_artifacts(
     write_json(artifacts["split_integrity_report"], checks["split_integrity"])
     write_json(artifacts["retrieval_corpus_audit"], checks["retrieval_corpus_audit"])
     write_metric_contract_artifact(checks["metric_contract"], artifacts["metric_contract"])
+    write_json(artifacts["pretrained_asset_audit"], checks["pretrained_asset_audit"])
     write_json(artifacts["normalized_annotation_snapshot"], checks["normalized_annotation_snapshot"])
     if probe is not None:
         artifacts["pipeline_provenance_probe"] = out / "pipeline_provenance_probe.json"
@@ -555,6 +566,12 @@ def format_preflight_report(result: PreflightResult) -> str:
         f"- Text main-ready: `{result.checks['backbone_readiness']['text']['ready_for_main_experiment']}`",
         f"- Vision state: `{result.checks['backbone_readiness']['vision']['readiness_state']}`",
         f"- Text state: `{result.checks['backbone_readiness']['text']['readiness_state']}`",
+        "",
+        "## Pretrained asset audit",
+        f"- Passed: `{result.checks['pretrained_asset_audit'].get('passed')}`",
+        f"- Artifact: `{result.artifacts.get('pretrained_asset_audit', 'pretrained_asset_audit.json')}`",
+        f"- Vision asset: `{result.checks['pretrained_asset_audit'].get('vision', {}).get('asset', {}).get('local_path')}`",
+        f"- Text asset: `{result.checks['pretrained_asset_audit'].get('text', {}).get('asset', {}).get('local_path')}`",
         "",
         "## Dataset / label eligibility",
         f"- Datasets: `{result.datasets}`",
@@ -609,7 +626,15 @@ def _add_backbone_issues(backbone: dict[str, Any], profile_cfg: dict[str, Any], 
         if profile_cfg.get(f"require_pretrained_{name}", False) and not state.get("weights_loaded"):
             _issue(issues, f"{name}_pretrained_missing", "error", f"{name} pretrained weights are required but not loaded.", state)
         if state.get("checkpoint_path") and not state.get("checkpoint_exists"):
-            _issue(issues, f"{name}_checkpoint_missing", "error", f"{name} checkpoint_path was configured but does not exist.", state)
+            severity = "error" if profile == "main_experiment" else "warning"
+            _issue(issues, f"{name}_checkpoint_missing", severity, f"{name} checkpoint_path was configured but does not exist.", state)
+
+
+def _add_asset_issues(asset_audit: dict[str, Any], issues: list[PreflightIssue]) -> None:
+    for item in asset_audit.get("warnings", []):
+        _issue(issues, str(item.get("code", "asset_warning")), "warning", str(item.get("message", "")), dict(item.get("context") or {}))
+    for item in asset_audit.get("errors", []):
+        _issue(issues, str(item.get("code", "asset_error")), "error", str(item.get("message", "")), dict(item.get("context") or {}))
 
 
 def _vision_ready_for_main(state: dict[str, Any], profile: dict[str, Any]) -> bool:
@@ -808,6 +833,10 @@ def _next_actions(result: PreflightResult) -> list[str]:
         if "pretrained_missing" in error["code"] or "fallback_backbone" in error["code"]:
             actions.append("- Provide local pretrained vision/text checkpoints in `configs/config.yaml` and rerun strict preflight.")
             break
+    if any("vision_checkpoint" in error["code"] or error["code"] == "vision_asset_unusable" for error in result.errors):
+        actions.append("- Vision asset missing: place an architecture-compatible ViT-B-32 OpenCLIP checkpoint at `assets/pretrained/vision/open_clip_vit_b_32/checkpoint.pt`.")
+    if any("text_" in error["code"] and ("directory" in error["code"] or "required_files" in error["code"] or "asset_unusable" in error["code"]) for error in result.errors):
+        actions.append("- Text asset missing: place a complete Hugging Face DeBERTa-v3-base snapshot at `assets/pretrained/text/deberta_v3_base/`.")
     if any(error["code"] == "metric_contract_blocked" for error in result.errors):
         actions.append("- Implement logits-only validation-threshold decoding for `tactic_rhetorical` formal metrics.")
     if any(error["code"] == "retrieval_corpus_unusable" for error in result.errors):

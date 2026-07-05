@@ -61,6 +61,28 @@ python scripts/run.py preflight --profile main_experiment --config configs/confi
 
 `smoke` preflight는 오프라인 구조 점검이며 fallback encoder 사용 시에도 경고와 함께 통과할 수 있습니다. `main_experiment` preflight는 논문용 실험 가능 여부를 판단하는 엄격한 게이트입니다. OpenCLIP/HuggingFace backend가 import되는 것만으로 pretrained checkpoint가 로드된 것으로 보지 않습니다. 실제 checkpoint 로드 여부(`weights_loaded`), fallback 사용 여부, random initialization 여부를 artifact에 기록합니다.
 
+## 로컬 pretrained asset 준비
+
+논문용 main experiment는 실제 로컬 pretrained asset이 필요합니다. Smoke fallback encoder는 개발용이며 paper-valid 결과로 보지 않습니다.
+
+권장 순서:
+
+```bash
+python scripts/run.py assets init-layout --config configs/config.yaml
+# 아래 경로에 호환되는 checkpoint/model snapshot을 직접 배치
+python scripts/run.py assets verify --config configs/config.yaml --profile main_experiment --write-manifests --strict
+python scripts/run.py preflight --profile main_experiment --config configs/config.yaml --dataset harm_c harm_p facebook memotion --seed 42 --label-set clean --device cpu --write-report --strict
+```
+
+필수 경로:
+
+```text
+assets/pretrained/vision/open_clip_vit_b_32/checkpoint.pt
+assets/pretrained/text/deberta_v3_base/
+```
+
+텍스트 디렉터리는 `config.json`, tokenizer 파일, 그리고 `model.safetensors` 또는 `pytorch_model.bin`을 포함해야 합니다. 모델 weight 파일은 Git에 커밋하지 않습니다. `asset_manifest.json`과 `.gitkeep`만 추적 대상입니다.
+
 주요 preflight 출력:
 
 ```text

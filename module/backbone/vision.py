@@ -37,6 +37,7 @@ class CLIPWrapper(nn.Module):
         cache_dir: str | Path | None = None,
         local_files_only: bool = True,
         allow_download: bool = False,
+        asset_mode: str | None = None,
     ) -> None:
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -48,6 +49,7 @@ class CLIPWrapper(nn.Module):
         self.cache_dir = Path(cache_dir) if cache_dir else None
         self.local_files_only = local_files_only
         self.allow_download = allow_download
+        self.asset_mode = asset_mode or ("local_checkpoint" if self.checkpoint_path else "pretrained_tag" if pretrained_tag else "fallback")
         self.model: Any | None = None
         self.preprocess: Any | None = None
         self.backend = "fallback"
@@ -59,7 +61,10 @@ class CLIPWrapper(nn.Module):
             "pretrained_requested": bool(prefer_pretrained),
             "pretrained_tag": pretrained_tag,
             "checkpoint_path": str(self.checkpoint_path) if self.checkpoint_path else None,
+            "resolved_path": str(self.checkpoint_path.resolve()) if self.checkpoint_path else None,
+            "asset_mode": self.asset_mode,
             "checkpoint_exists": bool(self.checkpoint_path and self.checkpoint_path.exists()),
+            "checkpoint_sha256": _sha256_file(self.checkpoint_path),
             "weights_loaded": False,
             "weights_source": None,
             "local_files_only": local_files_only,
@@ -74,13 +79,26 @@ class CLIPWrapper(nn.Module):
             self._try_load_clip(model_name, device)
 
     def _try_load_clip(self, model_name: str, device: str) -> None:
+        if self.asset_mode == "local_checkpoint":
+            if not self.checkpoint_path:
+                self._mark_load_error("asset_mode=local_checkpoint requires checkpoint_path")
+                return
+            if not self.checkpoint_path.exists():
+                self._mark_load_error(f"checkpoint_path does not exist: {self.checkpoint_path}")
+                return
+            if not self.checkpoint_path.is_file():
+                self._mark_load_error(f"checkpoint_path is not a file: {self.checkpoint_path}")
+                return
+            if self.checkpoint_path.stat().st_size <= 0:
+                self._mark_load_error(f"checkpoint_path is empty: {self.checkpoint_path}")
+                return
         if self.local_files_only and not self.allow_download and not self.checkpoint_path:
             self._mark_load_error("pretrained vision requested, but no local checkpoint_path was configured")
             return
         try:
             import open_clip  # type: ignore
 
-            pretrained = self.pretrained_tag if (self.allow_download and self.pretrained_tag) else None
+            pretrained = self.pretrained_tag if (self.allow_download and self.pretrained_tag and self.asset_mode != "local_checkpoint") else None
             model, _, preprocess = open_clip.create_model_and_transforms(
                 model_name,
                 pretrained=pretrained,
@@ -96,7 +114,7 @@ class CLIPWrapper(nn.Module):
                 state_dict = state.get("state_dict", state) if isinstance(state, dict) else state
                 model.load_state_dict(state_dict, strict=False)
                 weights_loaded = True
-                weights_source = str(self.checkpoint_path)
+                weights_source = "local_checkpoint"
             self.model = model.to(device).eval()
             self.preprocess = preprocess
             self.backend = "open_clip"
@@ -105,6 +123,8 @@ class CLIPWrapper(nn.Module):
                     "resolved_backend": "open_clip",
                     "weights_loaded": weights_loaded,
                     "weights_source": weights_source,
+                    "resolved_path": str(self.checkpoint_path.resolve()) if self.checkpoint_path else None,
+                    "checkpoint_sha256": _sha256_file(self.checkpoint_path),
                     "fallback_used": False,
                     "random_initialization_used": not weights_loaded,
                     "load_error": None if weights_loaded else "open_clip model initialized without pretrained weights",
@@ -199,6 +219,8 @@ class CLIPWrapper(nn.Module):
         state = dict(self._readiness)
         state["resolved_backend"] = self.backend
         state["checkpoint_exists"] = bool(self.checkpoint_path and self.checkpoint_path.exists())
+        state["checkpoint_sha256"] = _sha256_file(self.checkpoint_path)
+        state["resolved_path"] = str(self.checkpoint_path.resolve()) if self.checkpoint_path else None
         state["fallback_used"] = self.model is None or self.backend == "fallback" or bool(state.get("fallback_used"))
         return state
 
@@ -284,3 +306,14 @@ __all__ = ["CLIPWrapper", "Detection", "DetectorAdapter"]
 
 def _short_error(exc: Exception) -> str:
     return f"{type(exc).__name__}: {str(exc)[:300]}"
+
+
+def _sha256_file(path: Path | None) -> str | None:
+    if path is None or not path.exists() or not path.is_file():
+        return None
+    try:
+        from experiments.run_manifest import sha256_file
+
+        return sha256_file(path)
+    except Exception:
+        return None

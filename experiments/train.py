@@ -22,6 +22,7 @@ from experiments.evaluation import (
 )
 from experiments.prediction_io import save_predictions_and_metrics, stage_outputs_to_prediction_record
 from experiments.progress import progress_iter
+from experiments.pretrained_assets import build_asset_provenance
 from experiments.run_manifest import build_data_snapshot, build_run_manifest, collect_backbone_state, current_command, sha256_file, write_run_manifest
 from experiments.splits import build_splits_for_dataset, label_to_int, load_split_file, save_splits, split_samples
 from experiments.tactic_decoding import (
@@ -681,6 +682,7 @@ def run_baseline_experiment(config: BaselineRunConfig) -> dict[str, Any]:
     save_training_log(output_dir, training_log)
     test_metrics, predictions = evaluate_model(model, materialized.get("test", []), config.batch_size, device, disable_tqdm=config.disable_tqdm, desc="test")
     save_baseline_outputs(config, model, predictions, test_metrics)
+    backbone_state = collect_backbone_state(model)
     manifest = build_run_manifest(
         suite_name=config.suite_name,
         run_kind="baseline",
@@ -696,7 +698,8 @@ def run_baseline_experiment(config: BaselineRunConfig) -> dict[str, Any]:
         expected_evidence_mode="baseline",
         extra={
             "baseline_model": config.model_name,
-            "backbone_state": collect_backbone_state(model),
+            "backbone_state": backbone_state,
+            "pretrained_asset_provenance": build_asset_provenance(cfg, runtime_state=backbone_state),
             "data_snapshot": build_data_snapshot(
                 normalized_root=config.normalized_root,
                 label_set=config.label_set,
@@ -734,6 +737,7 @@ def create_baseline_model(model_name: str, cfg: dict[str, Any] | None = None, de
             clip_cache_dir=clip_cfg.get("cache_dir"),
             clip_local_files_only=bool(clip_cfg.get("local_files_only", True)),
             clip_allow_download=bool(clip_cfg.get("allow_download", False)),
+            clip_asset_mode=clip_cfg.get("asset_mode"),
         )
     if model_name == "text_only_encoder":
         return TextOnlyEncoderClassifier(
@@ -745,6 +749,7 @@ def create_baseline_model(model_name: str, cfg: dict[str, Any] | None = None, de
             text_cache_dir=text_cfg.get("cache_dir"),
             text_local_files_only=bool(text_cfg.get("local_files_only", True)),
             text_allow_download=bool(text_cfg.get("allow_download", False)),
+            text_asset_mode=text_cfg.get("asset_mode"),
         )
     if model_name == "clip_text_concat":
         return CLIPTextConcatClassifier(
@@ -759,10 +764,12 @@ def create_baseline_model(model_name: str, cfg: dict[str, Any] | None = None, de
             clip_cache_dir=clip_cfg.get("cache_dir"),
             clip_local_files_only=bool(clip_cfg.get("local_files_only", True)),
             clip_allow_download=bool(clip_cfg.get("allow_download", False)),
+            clip_asset_mode=clip_cfg.get("asset_mode"),
             text_checkpoint_path=text_cfg.get("checkpoint_path"),
             text_cache_dir=text_cfg.get("cache_dir"),
             text_local_files_only=bool(text_cfg.get("local_files_only", True)),
             text_allow_download=bool(text_cfg.get("allow_download", False)),
+            text_asset_mode=text_cfg.get("asset_mode"),
         )
     raise ValueError(f"Unsupported baseline model: {model_name}")
 
@@ -903,6 +910,8 @@ def _ours_manifest(config: OursRunConfig, pipeline: HarmfulMemePipeline) -> dict
         disabled_losses = list(STRUCTURED_AUXILIARY_LOSSES)
         if config.model_name == "ablation_w_o_structured_auxiliary":
             ablation_name = "w_o_structured_auxiliary"
+    cfg = load_yaml(config.config_path)
+    backbone_state = collect_backbone_state(pipeline)
     return build_run_manifest(
         suite_name=config.suite_name,
         run_kind="ablation" if ablation_name else "ours_full",
@@ -921,7 +930,8 @@ def _ours_manifest(config: OursRunConfig, pipeline: HarmfulMemePipeline) -> dict
             "train_relevance_mlp": config.train_relevance_mlp,
             "harmfulness_only": config.harmfulness_only,
             "structured_auxiliary": config.structured_auxiliary,
-            "backbone_state": collect_backbone_state(pipeline),
+            "backbone_state": backbone_state,
+            "pretrained_asset_provenance": build_asset_provenance(cfg, runtime_state=backbone_state),
             "data_snapshot": build_data_snapshot(
                 normalized_root=config.normalized_root,
                 label_set=config.label_set,

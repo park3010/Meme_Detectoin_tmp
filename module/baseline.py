@@ -52,6 +52,7 @@ class ImageOnlyCLIPClassifier(nn.Module):
         clip_cache_dir: str | None = None,
         clip_local_files_only: bool = True,
         clip_allow_download: bool = False,
+        clip_asset_mode: str | None = None,
     ) -> None:
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -65,6 +66,7 @@ class ImageOnlyCLIPClassifier(nn.Module):
             cache_dir=clip_cache_dir,
             local_files_only=clip_local_files_only,
             allow_download=clip_allow_download,
+            asset_mode=clip_asset_mode,
         )
         self.classifier = MLPClassifierHead(hidden_dim, hidden_dim=hidden_dim)
 
@@ -89,6 +91,7 @@ class TextOnlyEncoderClassifier(nn.Module):
         text_cache_dir: str | None = None,
         text_local_files_only: bool = True,
         text_allow_download: bool = False,
+        text_asset_mode: str | None = None,
     ) -> None:
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -101,6 +104,7 @@ class TextOnlyEncoderClassifier(nn.Module):
             cache_dir=text_cache_dir,
             local_files_only=text_local_files_only,
             allow_download=text_allow_download,
+            asset_mode=text_asset_mode,
         )
         self.classifier = MLPClassifierHead(hidden_dim, hidden_dim=hidden_dim)
 
@@ -133,6 +137,8 @@ class CLIPTextConcatClassifier(nn.Module):
         text_cache_dir: str | None = None,
         text_local_files_only: bool = True,
         text_allow_download: bool = False,
+        clip_asset_mode: str | None = None,
+        text_asset_mode: str | None = None,
     ) -> None:
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -146,6 +152,7 @@ class CLIPTextConcatClassifier(nn.Module):
             cache_dir=clip_cache_dir,
             local_files_only=clip_local_files_only,
             allow_download=clip_allow_download,
+            asset_mode=clip_asset_mode,
         )
         self.text_encoder = TextEncoderWrapper(
             hidden_dim=hidden_dim,
@@ -156,6 +163,7 @@ class CLIPTextConcatClassifier(nn.Module):
             cache_dir=text_cache_dir,
             local_files_only=text_local_files_only,
             allow_download=text_allow_download,
+            asset_mode=text_asset_mode,
         )
         self.classifier = MLPClassifierHead(hidden_dim * 2, hidden_dim=hidden_dim)
 

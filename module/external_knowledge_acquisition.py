@@ -349,6 +349,7 @@ class ExternalKnowledgeAcquisition(nn.Module):
         text_cache_dir: str | Path | None = None,
         text_local_files_only: bool = True,
         text_allow_download: bool = False,
+        text_asset_mode: str | None = None,
         max_documents: int | None = None,
         use_cross_encoder_rerank: bool = True,
         device: str = "cpu",
@@ -374,6 +375,7 @@ class ExternalKnowledgeAcquisition(nn.Module):
             cache_dir=text_cache_dir,
             local_files_only=text_local_files_only,
             allow_download=text_allow_download,
+            asset_mode=text_asset_mode,
         )
         self.source_embedding = nn.Embedding(6, hidden_dim)
         self.query_type_embedding = nn.Embedding(8, hidden_dim)

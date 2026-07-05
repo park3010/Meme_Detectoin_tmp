@@ -40,6 +40,7 @@ The preflight also verifies:
 - dataset-field eligibility using normalized labels and `LabelVocab` ignore policies
 - fixed split integrity and split SHA-256 reuse
 - retrieval corpus parseability and provenance
+- local pretrained asset inspection and actual runtime loading
 - metric-contract readiness, including the rule that formal `tactic_rhetorical` metrics must use logits-only decoding rather than rendered heuristic labels
 - normalized annotation snapshot hashes
 
@@ -54,6 +55,59 @@ Decision meanings:
 - `PASS`: no warnings or blocking errors
 - `PASS_WITH_WARNINGS`: runnable but not paper-ready without reviewing warnings
 - `BLOCKED`: do not run main experiments until the blocking errors are resolved
+
+## Local Pretrained Assets
+
+Main experiments require actual local pretrained assets. Smoke fallback encoders are useful for development, but they are not paper-valid.
+
+Initialize the project-relative layout:
+
+```bash
+python scripts/run.py assets init-layout --config configs/config.yaml
+```
+
+Then place compatible assets manually:
+
+```text
+assets/pretrained/vision/open_clip_vit_b_32/checkpoint.pt
+assets/pretrained/text/deberta_v3_base/config.json
+assets/pretrained/text/deberta_v3_base/tokenizer_config.json
+assets/pretrained/text/deberta_v3_base/tokenizer.json or spm.model/vocab files
+assets/pretrained/text/deberta_v3_base/model.safetensors or pytorch_model.bin
+```
+
+Verify assets before strict preflight:
+
+```bash
+python scripts/run.py assets verify \
+  --config configs/config.yaml \
+  --profile main_experiment \
+  --write-manifests \
+  --strict
+```
+
+Strict verification requires both structural inspection and actual adapter loading:
+
+- vision: `weights_loaded=true`, `fallback_used=false`, `random_initialization_used=false`
+- text: `weights_loaded=true`, `fallback_used=false`
+
+Asset audit output is written to:
+
+```text
+result/preflight/<profile>/pretrained_asset_audit.json
+```
+
+Each asset manifest records model name, source type, local path, file counts, byte size, SHA-256, required/missing files, and inspection issues. Model weight files must not be committed to Git; only `.gitkeep` and `asset_manifest.json` are intended to be tracked.
+
+Recommended order before main experiments:
+
+```bash
+python scripts/run.py assets init-layout --config configs/config.yaml
+# place compatible local checkpoints into the documented paths
+python scripts/run.py assets verify --config configs/config.yaml --profile main_experiment --write-manifests --strict
+python scripts/run.py preflight --profile main_experiment --config configs/config.yaml --dataset harm_c harm_p facebook memotion --seed 42 --label-set clean --device cpu --write-report --strict
+# only then run core_1seed
+```
 
 ## Suite Presets
 

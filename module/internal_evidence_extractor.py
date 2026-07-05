@@ -108,6 +108,7 @@ class GlobalVisualEncoder(nn.Module):
         cache_dir: str | Path | None = None,
         local_files_only: bool = True,
         allow_download: bool = False,
+        asset_mode: str | None = None,
     ) -> None:
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -121,6 +122,7 @@ class GlobalVisualEncoder(nn.Module):
             cache_dir=cache_dir,
             local_files_only=local_files_only,
             allow_download=allow_download,
+            asset_mode=asset_mode,
         )
 
     def forward(self, image_path: str | Path | None) -> tuple[torch.Tensor, torch.Tensor]:
@@ -147,6 +149,7 @@ class TextSemanticEncoder(nn.Module):
         cache_dir: str | Path | None = None,
         local_files_only: bool = True,
         allow_download: bool = False,
+        asset_mode: str | None = None,
     ) -> None:
         super().__init__()
         self.encoder = TextEncoderWrapper(
@@ -159,6 +162,7 @@ class TextSemanticEncoder(nn.Module):
             cache_dir=cache_dir,
             local_files_only=local_files_only,
             allow_download=allow_download,
+            asset_mode=asset_mode,
         )
 
     def forward(self, text: str) -> tuple[torch.Tensor, torch.Tensor, list[str]]:
@@ -182,6 +186,7 @@ class LocalObjectSymbolExtractor(nn.Module):
         cache_dir: str | Path | None = None,
         local_files_only: bool = True,
         allow_download: bool = False,
+        asset_mode: str | None = None,
     ) -> None:
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -196,6 +201,7 @@ class LocalObjectSymbolExtractor(nn.Module):
             cache_dir=cache_dir,
             local_files_only=local_files_only,
             allow_download=allow_download,
+            asset_mode=asset_mode,
         )
 
     def forward(self, image_path: str | Path | None, ocr_text: str) -> tuple[list[Detection], torch.Tensor, list[dict[str, Any]]]:
@@ -379,6 +385,8 @@ class InternalEvidenceExtractor(nn.Module):
         text_cache_dir: str | Path | None = None,
         text_local_files_only: bool = True,
         text_allow_download: bool = False,
+        clip_asset_mode: str | None = None,
+        text_asset_mode: str | None = None,
     ) -> None:
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -392,6 +400,7 @@ class InternalEvidenceExtractor(nn.Module):
             cache_dir=clip_cache_dir,
             local_files_only=clip_local_files_only,
             allow_download=clip_allow_download,
+            asset_mode=clip_asset_mode,
         )
         self.text_encoder = TextSemanticEncoder(
             hidden_dim,
@@ -403,6 +412,7 @@ class InternalEvidenceExtractor(nn.Module):
             cache_dir=text_cache_dir,
             local_files_only=text_local_files_only,
             allow_download=text_allow_download,
+            asset_mode=text_asset_mode,
         )
         self.local_extractor = LocalObjectSymbolExtractor(
             hidden_dim=hidden_dim,
@@ -416,6 +426,7 @@ class InternalEvidenceExtractor(nn.Module):
             cache_dir=clip_cache_dir,
             local_files_only=clip_local_files_only,
             allow_download=clip_allow_download,
+            asset_mode=clip_asset_mode,
         )
         self.incongruity = CrossModalIncongruityAnalyzer(hidden_dim)
 

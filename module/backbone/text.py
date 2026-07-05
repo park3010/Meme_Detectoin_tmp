@@ -35,6 +35,7 @@ class TextEncoderWrapper(nn.Module):
         cache_dir: str | Path | None = None,
         local_files_only: bool = True,
         allow_download: bool = False,
+        asset_mode: str | None = None,
     ) -> None:
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -45,6 +46,7 @@ class TextEncoderWrapper(nn.Module):
         self.cache_dir = Path(cache_dir) if cache_dir else None
         self.local_files_only = local_files_only
         self.allow_download = allow_download
+        self.asset_mode = asset_mode or ("local_directory" if self.checkpoint_path else "model_name")
         self.tokenizer: Any | None = None
         self.model: Any | None = None
         self.backend = "hashing"
@@ -53,7 +55,10 @@ class TextEncoderWrapper(nn.Module):
             "resolved_backend": "hashing",
             "model_name": model_name,
             "checkpoint_path": str(self.checkpoint_path) if self.checkpoint_path else None,
+            "resolved_path": str(self.checkpoint_path.resolve()) if self.checkpoint_path else None,
+            "asset_mode": self.asset_mode,
             "checkpoint_exists": bool(self.checkpoint_path and self.checkpoint_path.exists()),
+            "checkpoint_sha256": _path_sha256(self.checkpoint_path),
             "weights_loaded": False,
             "weights_source": None,
             "local_files_only": local_files_only,
@@ -71,10 +76,22 @@ class TextEncoderWrapper(nn.Module):
             from transformers import AutoModel, AutoTokenizer  # type: ignore
 
             source = str(self.checkpoint_path) if self.checkpoint_path else model_name
-            if self.checkpoint_path and not self.checkpoint_path.exists():
-                self._mark_load_error(f"checkpoint_path does not exist: {self.checkpoint_path}")
-                return
-            local_only = True if self.checkpoint_path else self.local_files_only or not self.allow_download
+            if self.asset_mode == "local_directory":
+                if not self.checkpoint_path:
+                    self._mark_load_error("asset_mode=local_directory requires checkpoint_path")
+                    return
+                if not self.checkpoint_path.exists():
+                    self._mark_load_error(f"checkpoint_path does not exist: {self.checkpoint_path}")
+                    return
+                if not self.checkpoint_path.is_dir():
+                    self._mark_load_error(f"checkpoint_path is not a directory: {self.checkpoint_path}")
+                    return
+                local_only = True
+            else:
+                if self.checkpoint_path and not self.checkpoint_path.exists():
+                    self._mark_load_error(f"checkpoint_path does not exist: {self.checkpoint_path}")
+                    return
+                local_only = True if self.checkpoint_path else self.local_files_only or not self.allow_download
             kwargs = {
                 "local_files_only": local_only,
             }
@@ -87,7 +104,9 @@ class TextEncoderWrapper(nn.Module):
                 {
                     "resolved_backend": "transformers",
                     "weights_loaded": True,
-                    "weights_source": source,
+                    "weights_source": "local_directory" if self.asset_mode == "local_directory" else source,
+                    "resolved_path": str(self.checkpoint_path.resolve()) if self.checkpoint_path else None,
+                    "checkpoint_sha256": _path_sha256(self.checkpoint_path),
                     "fallback_used": False,
                     "load_error": None,
                 }
@@ -151,6 +170,8 @@ class TextEncoderWrapper(nn.Module):
         state = dict(self._readiness)
         state["resolved_backend"] = self.backend
         state["checkpoint_exists"] = bool(self.checkpoint_path and self.checkpoint_path.exists())
+        state["resolved_path"] = str(self.checkpoint_path.resolve()) if self.checkpoint_path else None
+        state["checkpoint_sha256"] = _path_sha256(self.checkpoint_path)
         state["fallback_used"] = self.model is None or self.backend == "hashing" or bool(state.get("fallback_used"))
         return state
 
@@ -171,3 +192,15 @@ __all__ = ["TextEncoderWrapper"]
 
 def _short_error(exc: Exception) -> str:
     return f"{type(exc).__name__}: {str(exc)[:300]}"
+
+
+def _path_sha256(path: Path | None) -> str | None:
+    if path is None or not path.exists():
+        return None
+    try:
+        from experiments.pretrained_assets import _directory_sha256  # type: ignore
+        from experiments.run_manifest import sha256_file
+
+        return _directory_sha256(path) if path.is_dir() else sha256_file(path)
+    except Exception:
+        return None
