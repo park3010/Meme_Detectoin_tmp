@@ -90,6 +90,7 @@ Strict verification requires both structural inspection and actual adapter loadi
 
 - vision: `weights_loaded=true`, `fallback_used=false`, `random_initialization_used=false`
 - text: `weights_loaded=true`, `fallback_used=false`
+- vision checkpoints must also report `checkpoint_compatibility_verified=true`, `shape_mismatch_count=0`, and `matched_parameter_ratio>=0.99` when manual state-dict loading is used
 
 Asset audit output is written to:
 
@@ -98,6 +99,8 @@ result/preflight/<profile>/pretrained_asset_audit.json
 ```
 
 Each asset manifest records model name, source type, local path, file counts, byte size, SHA-256, required/missing files, and inspection issues. Model weight files must not be committed to Git; only `.gitkeep` and `asset_manifest.json` are intended to be tracked.
+
+Strict main preflight validates actual checkpoint compatibility, not merely file existence or SHA-256. A checkpoint must match the configured OpenCLIP architecture. Random OpenCLIP initialization, partially matched state dicts, tensor shape mismatches, and fallback image embeddings are never paper-valid pretrained states. Final run manifests record the runtime compatibility fields under `pretrained_asset_provenance.vision`.
 
 Recommended order before main experiments:
 

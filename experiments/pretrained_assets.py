@@ -192,7 +192,7 @@ def verify_pretrained_assets(config: dict[str, Any], *, strict: bool) -> AssetVe
     )
 
 
-def write_asset_manifest(record: AssetRecord, *, output_path: str | Path) -> Path:
+def write_asset_manifest(record: AssetRecord, *, output_path: str | Path, runtime_readiness: dict[str, Any] | None = None) -> Path:
     """Write one asset_manifest.json for the inspected asset."""
 
     path = Path(output_path)
@@ -200,6 +200,20 @@ def write_asset_manifest(record: AssetRecord, *, output_path: str | Path) -> Pat
         "schema_version": "pretrained_asset_manifest_v1",
         "asset": asdict(record),
     }
+    if record.asset_kind == "vision":
+        manifest.update(
+            {
+                "asset_kind": "vision",
+                "model_name": record.model_name,
+                "asset_mode": record.source_type,
+                "checkpoint_path": record.local_path,
+                "checkpoint_sha256": record.sha256,
+                "expected_loader": "open_clip_factory_local_path",
+                "expected_pretrained_source_id": record.local_path or record.source_identifier,
+                "runtime_compatibility_verified": bool((runtime_readiness or {}).get("checkpoint_compatibility_verified", False)),
+                "runtime_readiness": runtime_readiness or {},
+            }
+        )
     write_json(path, manifest)
     return path
 
@@ -250,7 +264,11 @@ def write_verification_artifacts(result: AssetVerificationResult, *, output_root
             asset = result.to_dict()[kind]["asset"]
             record = AssetRecord(**asset)
             if record.manifest_path:
-                paths[f"{kind}_asset_manifest"] = write_asset_manifest(record, output_path=record.manifest_path)
+                paths[f"{kind}_asset_manifest"] = write_asset_manifest(
+                    record,
+                    output_path=record.manifest_path,
+                    runtime_readiness=result.to_dict()[kind].get("runtime", {}),
+                )
     return paths
 
 
@@ -306,6 +324,11 @@ def _asset_provenance_item(config: dict[str, Any], key: str, record: AssetRecord
         "fallback_used": bool(runtime.get("fallback_used", True)),
         "random_initialization_used": bool(runtime.get("random_initialization_used", False)),
         "weights_source": runtime.get("weights_source"),
+        "checkpoint_compatibility_verified": bool(runtime.get("checkpoint_compatibility_verified", False)),
+        "checkpoint_format": runtime.get("checkpoint_format"),
+        "matched_parameter_ratio": runtime.get("matched_parameter_ratio"),
+        "shape_mismatch_count": runtime.get("shape_mismatch_count"),
+        "compatibility_failure_reason": runtime.get("compatibility_failure_reason"),
         "asset_manifest_path": record.manifest_path,
         "load_error": runtime.get("load_error"),
     }
@@ -326,6 +349,18 @@ def _collect_runtime_issues(kind: str, state: dict[str, Any], strict: bool, warn
         _issue(target, f"{kind}_runtime_fallback_used", "error" if strict else "warning", f"{kind} runtime used fallback features.", state)
     if kind == "vision" and state.get("random_initialization_used"):
         _issue(target, "vision_runtime_random_initialization", "error" if strict else "warning", "Vision runtime used random initialization.", state)
+    if kind == "vision":
+        ratio = state.get("matched_parameter_ratio")
+        shape_mismatches = int(state.get("shape_mismatch_count") or 0)
+        reason = str(state.get("compatibility_failure_reason") or state.get("load_error") or "")
+        if state.get("weights_loaded") and not state.get("checkpoint_compatibility_verified"):
+            _issue(target, "vision_checkpoint_compatibility_unverified", "error" if strict else "warning", "Vision weights were not compatibility verified.", state)
+        if strict and not state.get("checkpoint_compatibility_verified"):
+            _issue(target, _vision_compatibility_code(reason), "error", "Vision checkpoint compatibility was not verified.", state)
+        if strict and ratio is not None and float(ratio) < 0.99:
+            _issue(target, "vision_checkpoint_key_mismatch", "error", "Vision checkpoint matched too little of the configured architecture.", state)
+        if strict and shape_mismatches > 0:
+            _issue(target, "vision_checkpoint_shape_mismatch", "error", "Vision checkpoint contains tensor shape mismatches.", state)
 
 
 def _backbone_config(config: dict[str, Any], key: str) -> dict[str, Any]:
@@ -373,6 +408,21 @@ def _issue(issues: list[AssetIssue], code: str, severity: str, message: str, con
 
 def _short_error(exc: Exception) -> str:
     return f"{type(exc).__name__}: {str(exc)[:300]}"
+
+
+def _vision_compatibility_code(reason: str) -> str:
+    lowered = reason.lower()
+    if "shape" in lowered:
+        return "vision_checkpoint_shape_mismatch"
+    if "zero_matched" in lowered or "key_mismatch" in lowered or "coverage" in lowered:
+        return "vision_checkpoint_key_mismatch"
+    if "factory" in lowered:
+        return "vision_factory_local_load_failed"
+    if "missing" in lowered:
+        return "vision_asset_missing"
+    if "empty" in lowered:
+        return "vision_asset_zero_bytes"
+    return "vision_asset_exists_but_runtime_incompatible"
 
 
 __all__ = [

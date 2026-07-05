@@ -65,6 +65,20 @@ class CLIPWrapper(nn.Module):
             "asset_mode": self.asset_mode,
             "checkpoint_exists": bool(self.checkpoint_path and self.checkpoint_path.exists()),
             "checkpoint_sha256": _sha256_file(self.checkpoint_path),
+            "checkpoint_format": None,
+            "checkpoint_compatibility_verified": False,
+            "checkpoint_model_name": None,
+            "checkpoint_parameter_key_count": 0,
+            "model_parameter_key_count": 0,
+            "matched_parameter_key_count": 0,
+            "matched_parameter_numel": 0,
+            "model_parameter_numel": 0,
+            "matched_parameter_ratio": None,
+            "missing_key_count": 0,
+            "unexpected_key_count": 0,
+            "shape_mismatch_count": 0,
+            "compatibility_failure_reason": None,
+            "factory_local_load_error": None,
             "weights_loaded": False,
             "weights_source": None,
             "local_files_only": local_files_only,
@@ -97,44 +111,47 @@ class CLIPWrapper(nn.Module):
             return
         try:
             import open_clip  # type: ignore
-
-            pretrained = self.pretrained_tag if (self.allow_download and self.pretrained_tag and self.asset_mode != "local_checkpoint") else None
-            model, _, preprocess = open_clip.create_model_and_transforms(
-                model_name,
-                pretrained=pretrained,
-                cache_dir=str(self.cache_dir) if self.cache_dir else None,
-            )
-            weights_loaded = bool(pretrained)
-            weights_source = f"open_clip:{pretrained}" if pretrained else None
-            if self.checkpoint_path:
-                if not self.checkpoint_path.exists():
-                    self._mark_load_error(f"checkpoint_path does not exist: {self.checkpoint_path}")
-                    return
-                state = torch.load(self.checkpoint_path, map_location="cpu")
-                state_dict = state.get("state_dict", state) if isinstance(state, dict) else state
-                model.load_state_dict(state_dict, strict=False)
-                weights_loaded = True
-                weights_source = "local_checkpoint"
-            self.model = model.to(device).eval()
-            self.preprocess = preprocess
-            self.backend = "open_clip"
-            self._readiness.update(
-                {
-                    "resolved_backend": "open_clip",
-                    "weights_loaded": weights_loaded,
-                    "weights_source": weights_source,
-                    "resolved_path": str(self.checkpoint_path.resolve()) if self.checkpoint_path else None,
-                    "checkpoint_sha256": _sha256_file(self.checkpoint_path),
-                    "fallback_used": False,
-                    "random_initialization_used": not weights_loaded,
-                    "load_error": None if weights_loaded else "open_clip model initialized without pretrained weights",
-                }
-            )
-            logger.info("Using open_clip backend: %s", model_name)
-            return
         except Exception as exc:
             self._mark_load_error(f"open_clip: {_short_error(exc)}")
             logger.info("open_clip unavailable, trying clip package: %s", exc)
+            open_clip = None  # type: ignore
+
+        if open_clip is not None and self.asset_mode == "local_checkpoint" and self.checkpoint_path:
+            if self._try_open_clip_factory_local(open_clip, model_name, device):
+                return
+            if self._try_open_clip_manual_checkpoint(open_clip, model_name, device):
+                return
+            return
+
+        if open_clip is not None:
+            try:
+                pretrained = self.pretrained_tag if (self.allow_download and self.pretrained_tag and self.asset_mode != "local_checkpoint") else None
+                model, _, preprocess = _open_clip_create_model_and_transforms(
+                    open_clip,
+                    model_name,
+                    pretrained=pretrained,
+                    cache_dir=str(self.cache_dir) if self.cache_dir else None,
+                )
+                weights_loaded = bool(pretrained)
+                weights_source = f"open_clip:{pretrained}" if pretrained else None
+                self.model = model.to(device).eval()
+                self.preprocess = preprocess
+                self.backend = "open_clip"
+                self._readiness.update(
+                    {
+                        "resolved_backend": "open_clip",
+                        "weights_loaded": weights_loaded,
+                        "weights_source": weights_source,
+                        "fallback_used": False,
+                        "random_initialization_used": not weights_loaded,
+                        "load_error": None if weights_loaded else "open_clip model initialized without pretrained weights",
+                    }
+                )
+                logger.info("Using open_clip backend: %s", model_name)
+                return
+            except Exception as exc:
+                self._mark_load_error(f"open_clip: {_short_error(exc)}")
+                logger.info("open_clip unavailable, trying clip package: %s", exc)
         if not self.allow_download:
             logger.info("clip package loading skipped because allow_download=false")
             return
@@ -159,6 +176,104 @@ class CLIPWrapper(nn.Module):
         except Exception as exc:
             self._mark_load_error(f"clip: {_short_error(exc)}")
             logger.info("CLIP unavailable; using fallback image encoder: %s", exc)
+
+    def _try_open_clip_factory_local(self, open_clip: Any, model_name: str, device: str) -> bool:
+        assert self.checkpoint_path is not None
+        try:
+            model, _, preprocess = _open_clip_create_model_and_transforms(
+                open_clip,
+                model_name,
+                pretrained=str(self.checkpoint_path),
+                cache_dir=str(self.cache_dir) if self.cache_dir else None,
+            )
+            self.model = model.to(device).eval()
+            self.preprocess = preprocess
+            self.backend = "open_clip"
+            model_state = self.model.state_dict() if hasattr(self.model, "state_dict") else {}
+            model_numel = _state_numel(model_state)
+            self._readiness.update(
+                {
+                    "resolved_backend": "open_clip",
+                    "weights_loaded": True,
+                    "weights_source": "local_checkpoint",
+                    "checkpoint_format": "open_clip_factory_local_path",
+                    "checkpoint_compatibility_verified": True,
+                    "checkpoint_model_name": model_name,
+                    "model_parameter_key_count": len(model_state),
+                    "model_parameter_numel": model_numel,
+                    "matched_parameter_key_count": len(model_state),
+                    "matched_parameter_numel": model_numel,
+                    "matched_parameter_ratio": 1.0,
+                    "missing_key_count": 0,
+                    "unexpected_key_count": 0,
+                    "shape_mismatch_count": 0,
+                    "compatibility_failure_reason": None,
+                    "resolved_path": str(self.checkpoint_path.resolve()),
+                    "checkpoint_sha256": _sha256_file(self.checkpoint_path),
+                    "fallback_used": False,
+                    "random_initialization_used": False,
+                    "load_error": None,
+                }
+            )
+            logger.info("Using open_clip local checkpoint via factory: %s", self.checkpoint_path)
+            return True
+        except Exception as exc:
+            message = _short_error(exc)
+            self._readiness["factory_local_load_error"] = message
+            self._readiness["load_error"] = f"factory_local_load_failed: {message}"
+            logger.info("open_clip factory local checkpoint load failed: %s", exc)
+            return False
+
+    def _try_open_clip_manual_checkpoint(self, open_clip: Any, model_name: str, device: str) -> bool:
+        assert self.checkpoint_path is not None
+        try:
+            model, _, preprocess = _open_clip_create_model_and_transforms(
+                open_clip,
+                model_name,
+                pretrained=None,
+                cache_dir=str(self.cache_dir) if self.cache_dir else None,
+            )
+            checkpoint = torch.load(self.checkpoint_path, map_location="cpu")
+            state_dict, checkpoint_model_name = _extract_checkpoint_state_dict(checkpoint)
+            model_state = model.state_dict()
+            diagnostics = _state_dict_compatibility_diagnostics(state_dict, model_state)
+            diagnostics["checkpoint_model_name"] = checkpoint_model_name
+            self._readiness.update(diagnostics)
+            self._readiness.update(
+                {
+                    "resolved_backend": "open_clip",
+                    "checkpoint_format": "manual_state_dict_validated",
+                    "resolved_path": str(self.checkpoint_path.resolve()),
+                    "checkpoint_sha256": _sha256_file(self.checkpoint_path),
+                }
+            )
+            failure = _manual_checkpoint_failure(diagnostics)
+            if failure is not None:
+                self._mark_compatibility_failure(failure)
+                return False
+            normalized = _normalize_checkpoint_keys(state_dict)
+            loadable = {key: normalized[key] for key in model_state if key in normalized}
+            strict_load = len(loadable) == len(model_state) and diagnostics["unexpected_key_count"] == 0
+            model.load_state_dict(loadable, strict=strict_load)
+            self.model = model.to(device).eval()
+            self.preprocess = preprocess
+            self.backend = "open_clip"
+            self._readiness.update(
+                {
+                    "weights_loaded": True,
+                    "weights_source": "local_checkpoint",
+                    "checkpoint_compatibility_verified": True,
+                    "fallback_used": False,
+                    "random_initialization_used": False,
+                    "compatibility_failure_reason": None,
+                    "load_error": None,
+                }
+            )
+            logger.info("Using open_clip local checkpoint via validated manual load: %s", self.checkpoint_path)
+            return True
+        except Exception as exc:
+            self._mark_compatibility_failure(f"manual_checkpoint_load_failed: {_short_error(exc)}")
+            return False
 
     @torch.no_grad()
     def encode_image(self, image_path: str | Path | None) -> torch.Tensor:
@@ -221,18 +336,35 @@ class CLIPWrapper(nn.Module):
         state["checkpoint_exists"] = bool(self.checkpoint_path and self.checkpoint_path.exists())
         state["checkpoint_sha256"] = _sha256_file(self.checkpoint_path)
         state["resolved_path"] = str(self.checkpoint_path.resolve()) if self.checkpoint_path else None
-        state["fallback_used"] = self.model is None or self.backend == "fallback" or bool(state.get("fallback_used"))
+        state["fallback_used"] = bool(state.get("fallback_used"))
+        if state.get("weights_loaded") and not state.get("checkpoint_compatibility_verified") and self.asset_mode == "local_checkpoint":
+            state["weights_loaded"] = False
         return state
 
-    def _mark_load_error(self, message: str) -> None:
+    def _mark_load_error(self, message: str, *, fallback_used: bool = True) -> None:
         self._readiness.update(
             {
                 "resolved_backend": self.backend,
                 "weights_loaded": False,
                 "weights_source": None,
-                "fallback_used": True,
+                "checkpoint_compatibility_verified": False,
+                "fallback_used": fallback_used,
                 "random_initialization_used": False,
                 "load_error": message[:500],
+            }
+        )
+
+    def _mark_compatibility_failure(self, reason: str) -> None:
+        self._readiness.update(
+            {
+                "resolved_backend": "open_clip",
+                "weights_loaded": False,
+                "weights_source": None,
+                "checkpoint_compatibility_verified": False,
+                "fallback_used": False,
+                "random_initialization_used": False,
+                "compatibility_failure_reason": reason[:500],
+                "load_error": reason[:500],
             }
         )
 
@@ -306,6 +438,104 @@ __all__ = ["CLIPWrapper", "Detection", "DetectorAdapter"]
 
 def _short_error(exc: Exception) -> str:
     return f"{type(exc).__name__}: {str(exc)[:300]}"
+
+
+def _open_clip_create_model_and_transforms(open_clip: Any, model_name: str, *, pretrained: str | None, cache_dir: str | None):
+    kwargs = {"pretrained": pretrained}
+    if cache_dir is not None:
+        kwargs["cache_dir"] = cache_dir
+    try:
+        return open_clip.create_model_and_transforms(model_name, **kwargs)
+    except TypeError:
+        kwargs.pop("cache_dir", None)
+        return open_clip.create_model_and_transforms(model_name, **kwargs)
+
+
+def _extract_checkpoint_state_dict(checkpoint: Any) -> tuple[dict[str, torch.Tensor], str | None]:
+    checkpoint_model_name = None
+    state = checkpoint
+    if isinstance(checkpoint, dict):
+        checkpoint_model_name = checkpoint.get("model_name") or checkpoint.get("arch") or checkpoint.get("model")
+        for key in ["state_dict", "model_state_dict", "model", "module"]:
+            candidate = checkpoint.get(key)
+            if isinstance(candidate, dict) and candidate and all(isinstance(value, torch.Tensor) for value in candidate.values()):
+                state = candidate
+                break
+        else:
+            if all(isinstance(value, torch.Tensor) for value in checkpoint.values()):
+                state = checkpoint
+    if not isinstance(state, dict):
+        raise ValueError("checkpoint does not contain a tensor state_dict")
+    tensor_state = {str(key): value for key, value in state.items() if isinstance(value, torch.Tensor)}
+    if not tensor_state:
+        raise ValueError("checkpoint state_dict has no tensor parameters")
+    return tensor_state, str(checkpoint_model_name) if checkpoint_model_name else None
+
+
+def _normalize_checkpoint_keys(state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    normalized: dict[str, torch.Tensor] = {}
+    prefixes = ["module.", "model."]
+    for key, value in state_dict.items():
+        current = str(key)
+        changed = True
+        while changed:
+            changed = False
+            for prefix in prefixes:
+                if current.startswith(prefix):
+                    current = current[len(prefix) :]
+                    changed = True
+        normalized[current] = value
+    return normalized
+
+
+def _state_dict_compatibility_diagnostics(
+    checkpoint_state: dict[str, torch.Tensor],
+    model_state: dict[str, torch.Tensor],
+) -> dict[str, Any]:
+    normalized = _normalize_checkpoint_keys(checkpoint_state)
+    checkpoint_keys = set(normalized)
+    model_keys = set(model_state)
+    matched_keys = []
+    shape_mismatches = []
+    matched_numel = 0
+    for key in sorted(checkpoint_keys & model_keys):
+        checkpoint_tensor = normalized[key]
+        model_tensor = model_state[key]
+        if tuple(checkpoint_tensor.shape) == tuple(model_tensor.shape):
+            matched_keys.append(key)
+            matched_numel += int(model_tensor.numel())
+        else:
+            shape_mismatches.append(key)
+    model_numel = _state_numel(model_state)
+    return {
+        "checkpoint_parameter_key_count": len(checkpoint_keys),
+        "model_parameter_key_count": len(model_keys),
+        "matched_parameter_key_count": len(matched_keys),
+        "matched_parameter_numel": matched_numel,
+        "model_parameter_numel": model_numel,
+        "matched_parameter_ratio": (matched_numel / model_numel) if model_numel else 1.0,
+        "missing_key_count": len(model_keys - set(matched_keys)),
+        "unexpected_key_count": len(checkpoint_keys - model_keys),
+        "shape_mismatch_count": len(shape_mismatches),
+        "missing_key_samples": sorted(model_keys - set(matched_keys))[:5],
+        "unexpected_key_samples": sorted(checkpoint_keys - model_keys)[:5],
+        "shape_mismatch_samples": shape_mismatches[:5],
+    }
+
+
+def _manual_checkpoint_failure(diagnostics: dict[str, Any]) -> str | None:
+    if int(diagnostics.get("shape_mismatch_count") or 0) > 0:
+        return "checkpoint_shape_mismatch"
+    if int(diagnostics.get("matched_parameter_key_count") or 0) == 0:
+        return "checkpoint_key_mismatch_zero_matched"
+    ratio = diagnostics.get("matched_parameter_ratio")
+    if ratio is None or float(ratio) < 0.99:
+        return f"checkpoint_key_mismatch_low_coverage:{ratio}"
+    return None
+
+
+def _state_numel(state: dict[str, torch.Tensor]) -> int:
+    return sum(int(tensor.numel()) for tensor in state.values() if isinstance(tensor, torch.Tensor))
 
 
 def _sha256_file(path: Path | None) -> str | None:

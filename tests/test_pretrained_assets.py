@@ -81,9 +81,7 @@ def test_local_checkpoint_mode_never_requests_remote_download(tmp_path: Path, mo
     torch.save({}, checkpoint)
     calls = {}
 
-    fake_open_clip = SimpleNamespace(
-        create_model_and_transforms=lambda model_name, pretrained=None, cache_dir=None: _fake_clip_tuple(calls, pretrained)
-    )
+    fake_open_clip = SimpleNamespace(create_model_and_transforms=lambda model_name, pretrained=None, cache_dir=None: _fake_clip_tuple(calls, pretrained))
     monkeypatch.setitem(sys.modules, "open_clip", fake_open_clip)
 
     wrapper = CLIPWrapper(
@@ -94,10 +92,82 @@ def test_local_checkpoint_mode_never_requests_remote_download(tmp_path: Path, mo
         local_files_only=True,
     )
     state = wrapper.readiness_state()
-    assert calls["pretrained"] is None
+    assert calls["pretrained"] == str(checkpoint)
     assert state["weights_loaded"] is True
+    assert state["checkpoint_compatibility_verified"] is True
+    assert state["checkpoint_format"] == "open_clip_factory_local_path"
     assert state["fallback_used"] is False
     assert state["weights_source"] == "local_checkpoint"
+
+
+def test_mismatched_vision_checkpoint_shape_fails_without_fallback_label(tmp_path: Path, monkeypatch):
+    checkpoint = tmp_path / "vision" / "checkpoint.pt"
+    checkpoint.parent.mkdir()
+    torch.save({"state_dict": {"proj.weight": torch.ones(3, 3), "proj.bias": torch.ones(2)}}, checkpoint)
+    monkeypatch.setitem(sys.modules, "open_clip", _manual_open_clip())
+
+    wrapper = CLIPWrapper(prefer_pretrained=True, checkpoint_path=checkpoint, asset_mode="local_checkpoint")
+    state = wrapper.readiness_state()
+
+    assert state["weights_loaded"] is False
+    assert state["checkpoint_compatibility_verified"] is False
+    assert state["shape_mismatch_count"] == 1
+    assert state["compatibility_failure_reason"] == "checkpoint_shape_mismatch"
+    assert state["fallback_used"] is False
+    assert state["random_initialization_used"] is False
+
+
+def test_zero_matched_vision_checkpoint_cannot_pass(tmp_path: Path, monkeypatch):
+    checkpoint = tmp_path / "vision" / "checkpoint.pt"
+    checkpoint.parent.mkdir()
+    torch.save({"state_dict": {"unrelated.weight": torch.ones(2, 2)}}, checkpoint)
+    monkeypatch.setitem(sys.modules, "open_clip", _manual_open_clip())
+
+    wrapper = CLIPWrapper(prefer_pretrained=True, checkpoint_path=checkpoint, asset_mode="local_checkpoint")
+    state = wrapper.readiness_state()
+
+    assert state["matched_parameter_key_count"] == 0
+    assert state["weights_loaded"] is False
+    assert state["compatibility_failure_reason"] == "checkpoint_key_mismatch_zero_matched"
+
+
+def test_partial_low_coverage_vision_checkpoint_fails(tmp_path: Path, monkeypatch):
+    checkpoint = tmp_path / "vision" / "checkpoint.pt"
+    checkpoint.parent.mkdir()
+    torch.save({"state_dict": {"proj.bias": torch.ones(2)}}, checkpoint)
+    monkeypatch.setitem(sys.modules, "open_clip", _manual_open_clip())
+
+    wrapper = CLIPWrapper(prefer_pretrained=True, checkpoint_path=checkpoint, asset_mode="local_checkpoint")
+    state = wrapper.readiness_state()
+
+    assert 0.0 < state["matched_parameter_ratio"] < 0.99
+    assert state["weights_loaded"] is False
+    assert str(state["compatibility_failure_reason"]).startswith("checkpoint_key_mismatch_low_coverage")
+
+
+def test_known_prefix_normalization_allows_valid_manual_checkpoint(tmp_path: Path, monkeypatch):
+    checkpoint = tmp_path / "vision" / "checkpoint.pt"
+    checkpoint.parent.mkdir()
+    torch.save(
+        {
+            "model_name": "ViT-B-32",
+            "state_dict": {
+                "module.proj.weight": torch.ones(2, 2),
+                "module.proj.bias": torch.ones(2),
+            },
+        },
+        checkpoint,
+    )
+    monkeypatch.setitem(sys.modules, "open_clip", _manual_open_clip())
+
+    wrapper = CLIPWrapper(prefer_pretrained=True, checkpoint_path=checkpoint, asset_mode="local_checkpoint")
+    state = wrapper.readiness_state()
+
+    assert state["weights_loaded"] is True
+    assert state["checkpoint_compatibility_verified"] is True
+    assert state["checkpoint_format"] == "manual_state_dict_validated"
+    assert state["matched_parameter_ratio"] == 1.0
+    assert state["checkpoint_model_name"] == "ViT-B-32"
 
 
 def test_text_local_directory_runtime_with_mocked_transformers(tmp_path: Path, monkeypatch):
@@ -212,6 +282,24 @@ def _fake_clip_tuple(calls: dict, pretrained):
 class _FakeClipModel(torch.nn.Module):
     def encode_image(self, tensor):
         return torch.ones(tensor.size(0), 4)
+
+
+class _ParamClipModel(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.proj = torch.nn.Linear(2, 2)
+
+    def encode_image(self, tensor):
+        return torch.ones(tensor.size(0), 2)
+
+
+def _manual_open_clip():
+    def create_model_and_transforms(model_name, pretrained=None, cache_dir=None):
+        if pretrained is not None:
+            raise RuntimeError("factory local path unsupported in test")
+        return _ParamClipModel(), None, lambda image: torch.zeros(3, 4, 4)
+
+    return SimpleNamespace(create_model_and_transforms=create_model_and_transforms)
 
 
 class _FakeTokenizer:

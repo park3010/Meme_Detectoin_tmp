@@ -59,5 +59,6 @@ The protocol-locked suite runner treats `w_o_structured_auxiliary` as a train-ti
 
 Main experiment suites should be launched only after `main_experiment` strict preflight passes. In the default offline configuration, fallback encoders are acceptable for smoke checks but block paper-quality main experiments until local pretrained assets are configured.
 Model weights under `assets/pretrained/` must not be committed. Track only `.gitkeep` placeholders and `asset_manifest.json`.
+Strict vision verification checks that the local checkpoint is compatible with the configured OpenCLIP architecture. File existence and SHA-256 alone are not enough; random initialization, broad missing keys, shape mismatches, and fallback embeddings are never paper-valid pretrained states.
 
 Formal `tactic_rhetorical` metrics are computed from trainable tactic logits only. The validation split selects a sigmoid threshold once, the fixed threshold is applied to the test split, and rendered top-1/heuristic tactic labels remain explanation-only legacy diagnostics.

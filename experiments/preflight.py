@@ -628,6 +628,14 @@ def _add_backbone_issues(backbone: dict[str, Any], profile_cfg: dict[str, Any], 
         if state.get("checkpoint_path") and not state.get("checkpoint_exists"):
             severity = "error" if profile == "main_experiment" else "warning"
             _issue(issues, f"{name}_checkpoint_missing", severity, f"{name} checkpoint_path was configured but does not exist.", state)
+        if name == "vision" and profile == "main_experiment":
+            ratio = state.get("matched_parameter_ratio")
+            if not state.get("checkpoint_compatibility_verified"):
+                _issue(issues, "vision_checkpoint_compatibility_unverified", "error", "vision checkpoint compatibility was not verified.", state)
+            if ratio is not None and float(ratio) < 0.99:
+                _issue(issues, "vision_checkpoint_key_mismatch", "error", "vision checkpoint matched too little of the configured architecture.", state)
+            if int(state.get("shape_mismatch_count") or 0) > 0:
+                _issue(issues, "vision_checkpoint_shape_mismatch", "error", "vision checkpoint contains tensor shape mismatches.", state)
 
 
 def _add_asset_issues(asset_audit: dict[str, Any], issues: list[PreflightIssue]) -> None:
@@ -643,6 +651,12 @@ def _vision_ready_for_main(state: dict[str, Any], profile: dict[str, Any]) -> bo
     if state.get("random_initialization_used"):
         return False
     if profile.get("require_pretrained_vision") and not state.get("weights_loaded"):
+        return False
+    if state.get("weights_loaded") and not state.get("checkpoint_compatibility_verified"):
+        return False
+    if state.get("matched_parameter_ratio") is not None and float(state.get("matched_parameter_ratio")) < 0.99:
+        return False
+    if int(state.get("shape_mismatch_count") or 0) > 0:
         return False
     return True
 
