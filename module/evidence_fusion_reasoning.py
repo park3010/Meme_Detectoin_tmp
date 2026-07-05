@@ -291,7 +291,7 @@ class EvidenceFusionReasoning(nn.Module):
         self.gate = EvidenceGate(hidden_dim=hidden_dim)
         self.reasoning = TaskAwareReasoningHeads(hidden_dim=hidden_dim)
 
-    def forward(self, stage_a: StageAOutput, stage_c: StageCOutput) -> StageDOutput:
+    def forward(self, stage_a: StageAOutput, stage_c: StageCOutput, *, disable_task_aware_gate: bool = False) -> StageDOutput:
         """Run Stage D for one sample."""
 
         internal_memory, _ = self.internal_aggregator(stage_a)
@@ -318,12 +318,20 @@ class EvidenceFusionReasoning(nn.Module):
             knowledge_need=knowledge_need,
             q_int=internal_memory.mean(dim=0),
         )
+        gate_mode = "token_gated_internal_external_mix"
+        if disable_task_aware_gate:
+            shared_gate = gates["task_level"].mean().repeat(3)
+            gates["task_level"] = shared_gate
+            gate_mode = "shared_gate_train_time_ablation"
         shared_state, task_latents = self.reasoning(gated_tokens, gates["task_level"], head_level=gates.get("head_level"))
         regularizers = _regularizer_hooks(gates, attention_weights, stage_c.final_scores)
         provenance_records = _knowledge_provenance_records(stage_c)
         gate_statistics = _gate_statistics(gates)
         gate_statistics["knowledge_need"] = knowledge_need
         task_support_summary = _task_support_summary(stage_c)
+        analysis_hooks = dict(regularizers)
+        if disable_task_aware_gate:
+            analysis_hooks["task_aware_gate_enabled"] = 0.0
         return StageDOutput(
             sample_id=stage_a.sample_id,
             dataset_name=stage_a.dataset_name,
@@ -342,7 +350,7 @@ class EvidenceFusionReasoning(nn.Module):
                 regularizer_hooks=regularizers,
                 knowledge_need=knowledge_need,
                 support_matrix_shape=list(stage_c.support_matrix.shape),
-                gate_mode="token_gated_internal_external_mix",
+                gate_mode=gate_mode,
                 task_support_used=task_support_matrix.numel() > 0,
                 knowledge_origin_counts=_knowledge_origin_counts(provenance_records),
                 knowledge_provenance_records=provenance_records,
@@ -351,7 +359,7 @@ class EvidenceFusionReasoning(nn.Module):
                 task_support_summary=task_support_summary,
                 support_matrix_columns=list(getattr(stage_c.metadata, "support_matrix_columns", []) or []),
                 stage_c_policy=_stage_c_policy(stage_c),
-                analysis_hooks=dict(regularizers),
+                analysis_hooks=analysis_hooks,
                 regularizer_hook_mode="detached_analysis_only",
                 regularizer_hooks_are_differentiable=False,
             ),

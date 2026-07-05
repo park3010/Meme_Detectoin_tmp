@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Callable
 
@@ -40,6 +41,7 @@ def run_ablation_experiment(
     limit: int | None = None,
     disable_tqdm: bool = False,
     print_components: bool = False,
+    device: str = "cpu",
     suite_name: str | None = None,
     requested_command: str | None = None,
 ) -> dict[str, Any]:
@@ -57,6 +59,7 @@ def run_ablation_experiment(
         ablation=config,
         disable_tqdm=disable_tqdm,
         print_components=print_components,
+        device=device,
     )
     output_dir = Path(output_root) / "predictions" / dataset_name / f"ablation_{ablation_name}" / str(seed)
     save_predictions_and_metrics(output_dir, predictions, metrics)
@@ -73,7 +76,11 @@ def run_ablation_experiment(
             requested_command=requested_command or current_command(),
             ablation_name=config.name,
             component_state=component_state_for_ablation(config.name),
-            extra={"ablation_name": config.name, "training_strategy": "evaluation_time_variant"},
+            extra={
+                "ablation_name": config.name,
+                "training_strategy": "evaluation_time_diagnostic",
+                "diagnostic_note": "Evaluation-time diagnostic variant; not a core paper comparison.",
+            },
         ),
     )
     append_metric_row(Path(output_root) / "metrics" / "ablation.csv", _ablation_metric_row(dataset_name, seed, ablation_name, metrics))
@@ -90,6 +97,7 @@ def run_fusion_experiment(
     limit: int | None = None,
     disable_tqdm: bool = False,
     print_components: bool = False,
+    device: str = "cpu",
     suite_name: str | None = None,
     requested_command: str | None = None,
 ) -> dict[str, Any]:
@@ -109,6 +117,7 @@ def run_fusion_experiment(
         analysis_builder=gate_summary_record,
         disable_tqdm=disable_tqdm,
         print_components=print_components,
+        device=device,
     )
     output_dir = Path(output_root) / "predictions" / dataset_name / f"fusion_{fusion_mode}" / str(seed)
     save_predictions_and_metrics(output_dir, predictions, metrics)
@@ -150,11 +159,15 @@ def run_framework_variant(
     analysis_builder: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]] | None = None,
     disable_tqdm: bool = False,
     print_components: bool = False,
+    device: str = "cpu",
 ) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
     """Run a pipeline variant on the test split and return predictions/metrics/analysis."""
 
     set_seed(seed)
-    cfg = load_yaml(config_path)
+    runtime_device = _resolve_requested_device(device)
+    cfg = deepcopy(load_yaml(config_path))
+    cfg.setdefault("runtime", {})
+    cfg["runtime"]["device"] = str(runtime_device)
     dataset = MemeDataset(
         dataset_root=cfg.get("paths", {}).get("dataset_root", "dataset/source"),
         annotation_root=cfg.get("paths", {}).get("annotation_root", "dataset/annotation"),
@@ -165,7 +178,7 @@ def run_framework_variant(
     samples = [dict(sample, label=label_to_int(sample.get("raw_label"))) for sample in dataset if label_to_int(sample.get("raw_label")) is not None]
     splits = _load_or_create_splits(dataset_name, dataset, seed, cfg, split_file, output_root)
     test_samples = split_samples(samples, splits).get("test", [])
-    pipeline = HarmfulMemePipeline(cfg).eval()
+    pipeline = HarmfulMemePipeline(cfg).to(runtime_device).eval()
     if print_components:
         from experiments.components import print_pipeline_components
 
@@ -324,13 +337,15 @@ def _load_or_create_splits(dataset_name, dataset, seed, cfg, split_file, output_
 
 
 def _empty_stage_b(stage_a):
+    device = stage_a.internal_tokens.device
+    hidden_dim = stage_a.internal_tokens.size(-1)
     return StageBOutput(
         stage_a.sample_id,
         stage_a.dataset_name,
         QueryBundle(""),
         [],
         [],
-        torch.zeros(0, 256),
+        torch.zeros(0, hidden_dim, device=device),
         [],
         StageBMetadata(
             0,
@@ -344,7 +359,18 @@ def _empty_stage_b(stage_a):
 
 
 def _empty_stage_c(stage_a):
-    return StageCOutput(stage_a.sample_id, stage_a.dataset_name, [], torch.zeros(0, 256), torch.zeros(0, 6), torch.zeros(0), "", StageCMetadata(0, 0, 8, 0.05))
+    device = stage_a.internal_tokens.device
+    hidden_dim = stage_a.internal_tokens.size(-1)
+    return StageCOutput(
+        stage_a.sample_id,
+        stage_a.dataset_name,
+        [],
+        torch.zeros(0, hidden_dim, device=device),
+        torch.zeros(0, 6, device=device),
+        torch.zeros(0, device=device),
+        "",
+        StageCMetadata(0, 0, 8, 0.05),
+    )
 
 
 def _minimal_stage_c_from_stage_b(stage_a, stage_b):
@@ -372,8 +398,9 @@ def _minimal_stage_c_from_stage_b(stage_a, stage_b):
             )
         )
     tokens = stage_b.candidate_tokens
-    scores = torch.tensor([item.final_score for item in items], dtype=torch.float32)
-    matrix = torch.zeros(len(items), 6)
+    device = stage_b.candidate_tokens.device
+    scores = torch.tensor([item.final_score for item in items], dtype=torch.float32, device=device)
+    matrix = torch.zeros(len(items), 6, device=device)
     if len(items):
         matrix[:, 0] = scores
         matrix[:, 4] = 0.5
@@ -399,7 +426,7 @@ def _minimal_stage_c_from_stage_b(stage_a, stage_b):
 
 
 def _remove_roi(stage_a) -> None:
-    stage_a.roi_tokens = torch.zeros(0, stage_a.internal_tokens.size(-1))
+    stage_a.roi_tokens = torch.zeros(0, stage_a.internal_tokens.size(-1), device=stage_a.internal_tokens.device)
     stage_a.evidence_items = [item for item in stage_a.evidence_items if item.evidence_type != "local_symbol"]
     stage_a.metadata.roi_count = 0
 
@@ -431,8 +458,10 @@ def _keep_generated_candidates(stage_b) -> None:
 
 def _reset_candidates(stage_b, kept) -> None:
     indices = [candidate.token_index for candidate in kept if 0 <= candidate.token_index < stage_b.candidate_tokens.size(0)]
+    device = stage_b.candidate_tokens.device
+    hidden_dim = stage_b.candidate_tokens.size(-1) if stage_b.candidate_tokens.dim() == 2 else 256
     stage_b.knowledge_candidates = kept
-    stage_b.candidate_tokens = stage_b.candidate_tokens[indices] if indices else torch.zeros(0, 256)
+    stage_b.candidate_tokens = stage_b.candidate_tokens[indices] if indices else torch.zeros(0, hidden_dim, device=device)
     for idx, candidate in enumerate(stage_b.knowledge_candidates):
         candidate.token_index = idx
 
@@ -528,3 +557,10 @@ def _candidate_summary(candidate) -> dict[str, Any]:
         "type": getattr(candidate, "candidate_type", "verified"),
         "query": getattr(candidate, "query", ""),
     }
+
+
+def _resolve_requested_device(device: str) -> torch.device:
+    runtime_device = torch.device(device)
+    if runtime_device.type == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError(f"CUDA device was requested for diagnostic ablation run, but CUDA is not available: {device}")
+    return runtime_device

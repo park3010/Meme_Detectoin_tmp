@@ -79,6 +79,7 @@ def audit_run_artifacts(
     prediction_rows = _load_records(paths["predictions"], result, "predictions", strict)
     metrics_obj = _load_object(paths["metrics"], result, "metrics", strict)
     tactic_decoding_obj = _load_object(paths["tactic_decoding"], result, "formal tactic decoding", False) if paths["tactic_decoding"] else {}
+    result["train_time_artifacts"] = audit_train_time_artifacts(paths, manifest, result, strict=strict)
 
     expected_losses = set(manifest.get("expected_active_logits_losses") or EXPECTED_LOGITS_LOSSES)
     disabled_losses = set(manifest.get("expected_disabled_losses") or [])
@@ -145,7 +146,37 @@ def discover_artifacts(
         "metrics": _resolve_artifact(root, metrics, ["metrics.json", "final_metrics.json", "metrics.jsonl"]),
         "manifest": _resolve_artifact(root, None, ["run_manifest.json"]),
         "tactic_decoding": _resolve_artifact(root, None, ["tactic_rhetorical_decoding.json"]),
+        "best_model": _resolve_artifact(root, None, ["best_model.pt"]),
+        "validation_predictions": _resolve_artifact(root, None, ["validation_predictions.jsonl", "validation_predictions.json"]),
     }
+
+
+def audit_train_time_artifacts(
+    paths: dict[str, Path | None],
+    manifest: dict[str, Any],
+    result: dict[str, Any],
+    *,
+    strict: bool,
+) -> dict[str, Any]:
+    """Require checkpoint and validation artifacts for trained ablation comparisons."""
+
+    required = manifest.get("run_kind") == "ablation" and manifest.get("training_strategy") == "train_time_variant"
+    checks = {
+        "required": required,
+        "best_model_found": bool(paths.get("best_model") and paths["best_model"].exists()),
+        "validation_predictions_found": bool(paths.get("validation_predictions") and paths["validation_predictions"].exists()),
+        "training_strategy": manifest.get("training_strategy"),
+    }
+    if not required:
+        return checks
+    missing = []
+    if not checks["best_model_found"]:
+        missing.append("best_model.pt")
+    if not checks["validation_predictions_found"]:
+        missing.append("validation_predictions.jsonl")
+    for artifact in missing:
+        _issue(result, f"Train-time ablation artifact is missing: {artifact}.", strict=strict, critical=True)
+    return checks
 
 
 def audit_training_log(
@@ -804,7 +835,7 @@ def _load_manifest(path: Path | None, result: dict[str, Any]) -> dict[str, Any]:
 def _requires_training_log(manifest: dict[str, Any]) -> bool:
     run_kind = manifest.get("run_kind")
     if run_kind in {"ablation", "fusion", "knowledge_comparison"}:
-        return manifest.get("training_strategy") != "evaluation_time_variant"
+        return manifest.get("training_strategy") not in {"evaluation_time_variant", "evaluation_time_diagnostic"}
     return run_kind in {None, "", "ours_full"}
 
 

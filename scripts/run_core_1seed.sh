@@ -80,16 +80,18 @@ for dataset in "${DATASET_ARRAY[@]}"; do
 
   for ablation in w_o_retrieval w_o_verifier w_o_task_aware_gate; do
     log_section "Core 1-seed: ablation=${ablation} dataset=${dataset}"
-    run_with_optional_limit "${PYTHON}" scripts/run.py ablation \
+    run_with_optional_limit "${PYTHON}" scripts/run.py train \
       --config "${CONFIG}" --dataset "${dataset}" --seed "${SEED}" \
-      --ablation "${ablation}" --output-root "${OUTPUT_ROOT}"
+      --epochs "${OURS_EPOCHS}" --lr "${LR}" --patience "${PATIENCE}" \
+      --min-delta "${MIN_DELTA}" --early-stop-metric "${EARLY_STOP_METRIC}" \
+      --ablation-name "${ablation}" --device "${DEVICE}" --output-root "${OUTPUT_ROOT}"
   done
 
   for mode in no_knowledge retrieved_only verified; do
     log_section "Core 1-seed: knowledge=${mode} dataset=${dataset}"
     run_with_optional_limit "${PYTHON}" scripts/run_knowledge_comparison.py \
       --config "${CONFIG}" --dataset "${dataset}" --seed "${SEED}" \
-      --mode "${mode}" --output-root "${OUTPUT_ROOT}"
+      --mode "${mode}" --device "${DEVICE}" --output-root "${OUTPUT_ROOT}"
   done
 done
 

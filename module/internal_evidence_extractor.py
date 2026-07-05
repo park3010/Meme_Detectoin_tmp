@@ -445,6 +445,12 @@ class InternalEvidenceExtractor(nn.Module):
         visual_global, patch_tokens = self.visual_encoder(stage_input.image_path)
         text_global, text_tokens, token_strings = self.text_encoder(normalize_text(stage_input.ocr_text_full))
         detections, roi_tokens, roi_metadata = self.local_extractor(stage_input.image_path, stage_input.ocr_text_full)
+        compute_device = _module_device(self.incongruity)
+        visual_global = visual_global.to(compute_device)
+        patch_tokens = patch_tokens.to(compute_device)
+        text_global = text_global.to(compute_device)
+        text_tokens = text_tokens.to(compute_device)
+        roi_tokens = roi_tokens.to(compute_device)
         visual_bank = torch.cat([patch_tokens, roi_tokens], dim=0) if roi_tokens.numel() else patch_tokens
         incongruity_token, aux_scores, aux_labels = self.incongruity(
             visual_global,
@@ -596,6 +602,14 @@ _EVIDENCE_CONTRACT = {
     "local_symbol": {"modality": "image_text", "grounding_type": "pseudo_roi", "is_heuristic": True},
     "cross_modal_incongruity": {"modality": "cross_modal", "grounding_type": "relation", "is_heuristic": True},
 }
+
+
+def _module_device(module: nn.Module) -> torch.device:
+    for parameter in module.parameters():
+        return parameter.device
+    for buffer in module.buffers():
+        return buffer.device
+    return torch.device("cpu")
 
 
 def _evidence_metadata(evidence_type: str, extra: dict[str, Any] | None = None) -> dict[str, Any]:

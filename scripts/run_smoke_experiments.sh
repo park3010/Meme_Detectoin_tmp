@@ -73,12 +73,14 @@ run_cmd "${PYTHON}" scripts/run.py evaluate \
   --dataset harm_c --model ours_full --seed 42 --result-root "${OUTPUT_ROOT}" --output-root "${OUTPUT_ROOT}/metrics"
 
 log_section "Smoke: one ablation"
-run_with_optional_limit "${PYTHON}" scripts/run.py ablation \
-  --config "${CONFIG}" --dataset harm_c --seed 42 --ablation w_o_verifier --output-root "${OUTPUT_ROOT}"
+run_with_optional_limit "${PYTHON}" scripts/run.py train \
+  --config "${CONFIG}" --dataset harm_c --seed 42 --epochs "${EPOCHS}" \
+  --ablation-name w_o_verifier --device "${DEVICE}" --output-root "${OUTPUT_ROOT}" \
+  --disable-tqdm
 
 log_section "Smoke: one knowledge comparison"
 run_with_optional_limit "${PYTHON}" scripts/run_knowledge_comparison.py \
-  --config "${CONFIG}" --dataset harm_c --seed 42 --mode verified --output-root "${OUTPUT_ROOT}"
+  --config "${CONFIG}" --dataset harm_c --seed 42 --mode verified --device "${DEVICE}" --output-root "${OUTPUT_ROOT}"
 
 log_section "Smoke: runtime/cost"
 run_cmd "${PYTHON}" scripts/run_runtime_cost.py \

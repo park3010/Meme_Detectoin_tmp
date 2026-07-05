@@ -32,7 +32,15 @@ from experiments.tactic_decoding import (
     resolve_tactic_decoding_spec,
     select_tactic_threshold,
 )
-from experiments.ablation_configs import LOGITS_LOSSES, STRUCTURED_AUXILIARY_LOSSES, default_component_state
+from experiments.ablation_configs import (
+    LOGITS_LOSSES,
+    STRUCTURED_AUXILIARY_LOSSES,
+    component_state_for_ablation,
+    default_component_state,
+    get_ablation_contract,
+    normalize_ablation_name,
+    runtime_config_for_ablation,
+)
 from module.baseline import CLIPTextConcatClassifier, ImageOnlyCLIPClassifier, TextOnlyEncoderClassifier
 from module.losses import StructuredMemeLoss, extract_supervision_from_annotation
 from module.runner import HarmfulMemePipeline
@@ -76,6 +84,7 @@ class OursRunConfig:
     use_normalized_labels: bool = True
     require_normalized_label: bool = True
     use_sample_weight: bool = True
+    ablation_name: str | None = None
     suite_name: str | None = None
     requested_command: str | None = None
 
@@ -99,9 +108,10 @@ def run_ours_experiment(config: OursRunConfig) -> dict[str, Any]:
     splits = _load_or_create_ours_splits(config, split_dataset, cfg)
     materialized = split_samples(samples, splits)
 
-    device = torch.device(config.device if config.device == "cpu" or torch.cuda.is_available() else "cpu")
+    device = _resolve_training_device(config.device)
     cfg.setdefault("runtime", {})["device"] = str(device)
     pipeline = HarmfulMemePipeline(cfg).to(device)
+    ablation_runtime = runtime_config_for_ablation(config.ablation_name)
     if config.print_components:
         from experiments.components import print_pipeline_components
 
@@ -141,7 +151,7 @@ def run_ours_experiment(config: OursRunConfig) -> dict[str, Any]:
             leave=False,
         )
         for sample in train_iter:
-            outputs = pipeline(sample)
+            outputs = pipeline(sample, ablation=ablation_runtime)
             stage_e = outputs["stage_e"]
             supervision = extract_supervision_from_annotation(sample)
             if config.harmfulness_only:
@@ -313,10 +323,11 @@ def evaluate_ours_pipeline(
     """Evaluate a full pipeline and return combined harmfulness/structured metrics."""
 
     _ = device
+    ablation_runtime = runtime_config_for_ablation(config.ablation_name)
     pipeline.eval()
     predictions: list[dict[str, Any]] = []
     for sample in progress_iter(samples, desc=desc, disable=config.disable_tqdm, leave=False):
-        outputs = pipeline(sample)
+        outputs = pipeline(sample, ablation=ablation_runtime)
         predictions.append(stage_outputs_to_prediction_record(sample, outputs, model_name=config.model_name, seed=config.seed))
     harmfulness = compute_harmfulness_metrics(
         [record["gold_label"] for record in predictions if record.get("gold_label") is not None],
@@ -496,6 +507,13 @@ def _sample_weight(supervision: dict[str, Any], sample: dict[str, Any]) -> float
         return 1.0
 
 
+def _resolve_training_device(device: str) -> torch.device:
+    runtime_device = torch.device(device)
+    if runtime_device.type == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError(f"CUDA device was requested for training, but CUDA is not available: {device}")
+    return runtime_device
+
+
 def _formal_tactic_inputs(records: list[dict[str, Any]]) -> tuple[list[list[float]], list[list[str]], int]:
     logits: list[list[float]] = []
     gold: list[list[str]] = []
@@ -583,7 +601,7 @@ def run_baseline_experiment(config: BaselineRunConfig) -> dict[str, Any]:
     splits = _load_or_create_baseline_splits(config, split_dataset)
     materialized = split_samples(sample_dicts, splits)
 
-    device = torch.device(config.device if config.device == "cpu" or torch.cuda.is_available() else "cpu")
+    device = _resolve_training_device(config.device)
     model = create_baseline_model(config.model_name, cfg, device=str(device)).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
     output_dir = Path(config.output_root) / "predictions" / config.dataset_name / config.model_name / str(config.seed)
@@ -901,21 +919,30 @@ def _load_or_create_baseline_splits(config: BaselineRunConfig, dataset: Any) -> 
 
 
 def _ours_manifest(config: OursRunConfig, pipeline: HarmfulMemePipeline) -> dict[str, Any]:
-    component_state = default_component_state()
+    ablation_name = normalize_ablation_name(config.ablation_name) if config.ablation_name else None
+    component_state = component_state_for_ablation(ablation_name) if ablation_name else default_component_state()
     active_losses = list(LOGITS_LOSSES)
     disabled_losses: list[str] = []
-    ablation_name = None
     if config.harmfulness_only:
         active_losses = ["harmfulness"]
         disabled_losses = [name for name in LOGITS_LOSSES if name != "harmfulness"]
+    elif ablation_name:
+        contract = get_ablation_contract(ablation_name)
+        active_losses = list(contract.expected_active_logits_losses)
+        disabled_losses = list(contract.expected_proxy_or_disabled_losses)
     elif not config.structured_auxiliary:
         component_state["stage_e_structured_auxiliary_enabled"] = False
         active_losses = [name for name in active_losses if name not in STRUCTURED_AUXILIARY_LOSSES]
         disabled_losses = list(STRUCTURED_AUXILIARY_LOSSES)
         if config.model_name == "ablation_w_o_structured_auxiliary":
             ablation_name = "w_o_structured_auxiliary"
+    if not config.structured_auxiliary and not disabled_losses:
+        component_state["stage_e_structured_auxiliary_enabled"] = False
+        active_losses = [name for name in active_losses if name not in STRUCTURED_AUXILIARY_LOSSES]
+        disabled_losses = list(STRUCTURED_AUXILIARY_LOSSES)
     cfg = load_yaml(config.config_path)
     backbone_state = collect_backbone_state(pipeline)
+    runtime_ablation = runtime_config_for_ablation(ablation_name)
     return build_run_manifest(
         suite_name=config.suite_name,
         run_kind="ablation" if ablation_name else "ours_full",
@@ -930,6 +957,9 @@ def _ours_manifest(config: OursRunConfig, pipeline: HarmfulMemePipeline) -> dict
         expected_active_logits_losses=active_losses,
         expected_disabled_losses=disabled_losses,
         extra={
+            "ablation_name": ablation_name,
+            "ablation_runtime": dict(runtime_ablation.__dict__) if runtime_ablation else None,
+            "training_strategy": "train_time_variant" if ablation_name else "full_training",
             "freeze_backbones": config.freeze_backbones,
             "train_relevance_mlp": config.train_relevance_mlp,
             "harmfulness_only": config.harmfulness_only,

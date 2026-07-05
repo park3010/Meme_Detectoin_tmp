@@ -87,6 +87,31 @@ class AblationConfig:
     label_only_no_evidence: bool = False
 
 
+@dataclass(frozen=True)
+class AblationRuntimeConfig:
+    """Canonical ablation flags consumed by train/eval pipeline forwards."""
+
+    name: str
+    disable_roi: bool = False
+    disable_incongruity: bool = False
+    disable_retrieval: bool = False
+    disable_context_generation: bool = False
+    disable_relevance_scorer: bool = False
+    disable_support_verifier: bool = False
+    disable_temporal_cultural_validator: bool = False
+    disable_task_aware_gate: bool = False
+    disable_structured_auxiliary: bool = False
+    label_only_no_evidence: bool = False
+
+
+TRAIN_TIME_CORE_ABLATIONS = {
+    "w_o_retrieval",
+    "w_o_support_verifier",
+    "w_o_task_aware_gate",
+    "w_o_structured_auxiliary",
+}
+
+
 def normalize_ablation_name(name: str) -> str:
     """Normalize public aliases to canonical ablation names."""
 
@@ -121,6 +146,27 @@ def get_ablation_config(name: str) -> AblationConfig:
     elif name == "label_only_no_evidence":
         cfg.label_only_no_evidence = True
     return cfg
+
+
+def runtime_config_for_ablation(name: str | None) -> AblationRuntimeConfig | None:
+    """Return canonical runtime ablation flags or None for full model."""
+
+    if not name or normalize_ablation_name(name) == "full":
+        return None
+    cfg = get_ablation_config(name)
+    return AblationRuntimeConfig(
+        name=cfg.name,
+        disable_roi=cfg.remove_roi,
+        disable_incongruity=cfg.remove_incongruity,
+        disable_retrieval=cfg.disable_retrieval,
+        disable_context_generation=cfg.disable_context_generation,
+        disable_relevance_scorer=cfg.disable_relevance_scorer,
+        disable_support_verifier=cfg.disable_support_verifier,
+        disable_temporal_cultural_validator=cfg.disable_temporal_cultural_validator,
+        disable_task_aware_gate=cfg.disable_task_aware_gate,
+        disable_structured_auxiliary=cfg.disable_structured_auxiliary,
+        label_only_no_evidence=cfg.label_only_no_evidence,
+    )
 
 
 def default_component_state() -> dict[str, bool]:

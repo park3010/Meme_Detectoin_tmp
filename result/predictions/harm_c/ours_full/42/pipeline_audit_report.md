@@ -55,7 +55,7 @@
 - Artifact found: True
 - Passed: True
 - Source: `tactic_logits_sigmoid`
-- Selected threshold: `0.35`
+- Selected threshold: `0.4`
 - Formal metric status: `ready`
 
 ## Warnings

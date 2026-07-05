@@ -8,7 +8,7 @@ from typing import Any
 
 from common import ROOT  # noqa: F401 - importing common also adds the repository root to sys.path.
 
-from experiments.ablation_configs import ABLATION_MODES
+from experiments.ablation_configs import ABLATION_MODES, normalize_ablation_name
 from experiments.ablation_runner import run_ablation_experiment, run_fusion_experiment
 from experiments.evaluation import attach_formal_tactic_traces, evaluate_prediction_file, evaluate_tactic_rhetorical_logits_only
 from experiments.pipeline_audit import audit_run_artifacts, format_audit_summary, write_audit_report
@@ -88,6 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
     ablation.add_argument("--limit", type=int, default=None)
     ablation.add_argument("--split-file", default=None)
     ablation.add_argument("--output-root", default="result")
+    ablation.add_argument("--device", default="cpu")
     ablation.add_argument("--disable-tqdm", action="store_true")
     ablation.add_argument("--print-components", action="store_true")
     ablation.set_defaults(func=_cmd_ablation)
@@ -158,6 +159,7 @@ def _add_ours_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--config", default=DEFAULT_CONFIG)
     parser.add_argument("--dataset", nargs="+", default=["harm_c"])
     parser.add_argument("--experiment", default="ours_full")
+    parser.add_argument("--ablation-name", default=None, help="Train a paper-valid ablation variant with canonical pipeline semantics.")
     parser.add_argument("--seed", nargs="+", type=int, default=[42])
     parser.add_argument("--all-seeds", action="store_true")
     parser.add_argument("--epochs", type=int, default=5)
@@ -228,6 +230,7 @@ def _cmd_train(args: argparse.Namespace) -> None:
                 config_path=args.config,
                 split_file=args.split_file,
                 output_root=args.output_root,
+                model_name=_ours_model_name(args),
                 epochs=args.epochs,
                 lr=args.lr,
                 patience=args.patience,
@@ -243,16 +246,26 @@ def _cmd_train(args: argparse.Namespace) -> None:
                 freeze_backbones=not args.unfreeze_backbones,
                 train_relevance_mlp=not args.no_relevance_mlp_training,
                 harmfulness_only=args.harmfulness_only,
-                structured_auxiliary=not args.harmfulness_only,
+                structured_auxiliary=(
+                    not args.harmfulness_only
+                    and (not args.ablation_name or normalize_ablation_name(args.ablation_name) != "w_o_structured_auxiliary")
+                ),
                 normalized_root=args.normalized_root,
                 label_set=args.label_set,
                 vocab_path=args.vocab_path,
                 use_normalized_labels=args.use_normalized_labels,
                 require_normalized_label=args.require_normalized_label,
                 use_sample_weight=args.use_sample_weight,
+                ablation_name=normalize_ablation_name(args.ablation_name) if args.ablation_name else None,
             )
             metrics = run_ours_experiment(cfg)
-            print(f"{dataset}/{args.experiment}/seed={seed}: macro_f1={metrics.get('macro_f1')} accuracy={metrics.get('accuracy')}")
+            print(f"{dataset}/{cfg.model_name}/seed={seed}: macro_f1={metrics.get('macro_f1')} accuracy={metrics.get('accuracy')}")
+
+
+def _ours_model_name(args: argparse.Namespace) -> str:
+    if args.ablation_name:
+        return f"ablation_{normalize_ablation_name(args.ablation_name)}"
+    return str(args.experiment)
 
 
 def _cmd_baseline(args: argparse.Namespace) -> None:
@@ -465,6 +478,7 @@ def _cmd_ablation(args: argparse.Namespace) -> None:
                     limit=args.limit,
                     disable_tqdm=args.disable_tqdm,
                     print_components=args.print_components,
+                    device=args.device,
                 )
                 print(f"{dataset}/ablation_{ablation}/seed={seed}: macro_f1={metrics.get('macro_f1')}")
             for mode in fusion_modes:
@@ -478,6 +492,7 @@ def _cmd_ablation(args: argparse.Namespace) -> None:
                     limit=args.limit,
                     disable_tqdm=args.disable_tqdm,
                     print_components=args.print_components,
+                    device=args.device,
                 )
                 print(f"{dataset}/fusion_{mode}/seed={seed}: macro_f1={metrics.get('macro_f1')}")
 

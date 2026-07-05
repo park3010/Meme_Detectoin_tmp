@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from dataset import MemeDataset
-from experiments.ablation_configs import component_state_for_ablation, get_ablation_contract, normalize_ablation_name
+from experiments.ablation_configs import TRAIN_TIME_CORE_ABLATIONS, component_state_for_ablation, get_ablation_contract, normalize_ablation_name
 from experiments.ablation_runner import run_ablation_experiment
 from experiments.knowledge_comparison import run_knowledge_comparison
 from experiments.pipeline_audit import audit_run_artifacts, format_audit_summary, write_audit_report
@@ -276,7 +276,7 @@ def _execute_run(run: SuiteRun, args: Any) -> dict[str, Any]:
             )
         )
     if run.run_kind == "ablation":
-        if run.ablation == "w_o_structured_auxiliary":
+        if run.ablation in TRAIN_TIME_CORE_ABLATIONS:
             return run_ours_experiment(
                 OursRunConfig(
                     dataset_name=run.dataset,
@@ -294,7 +294,8 @@ def _execute_run(run: SuiteRun, args: Any) -> dict[str, Any]:
                     print_components=args.print_components,
                     device=run.device,
                     limit=run.limit,
-                    structured_auxiliary=False,
+                    ablation_name=run.ablation,
+                    structured_auxiliary=(run.ablation != "w_o_structured_auxiliary"),
                     suite_name=run.suite_name,
                     requested_command=command,
                 )
@@ -309,6 +310,7 @@ def _execute_run(run: SuiteRun, args: Any) -> dict[str, Any]:
             limit=run.limit,
             disable_tqdm=args.disable_tqdm,
             print_components=args.print_components,
+            device=run.device,
             suite_name=run.suite_name,
             requested_command=command,
         )
@@ -323,6 +325,7 @@ def _execute_run(run: SuiteRun, args: Any) -> dict[str, Any]:
             limit=run.limit,
             disable_tqdm=args.disable_tqdm,
             print_components=args.print_components,
+            device=run.device,
             suite_name=run.suite_name,
             requested_command=command,
         )

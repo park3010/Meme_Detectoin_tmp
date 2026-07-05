@@ -5,6 +5,7 @@ from experiments.ablation_configs import (
     component_state_for_ablation,
     get_ablation_config,
     get_ablation_contract,
+    runtime_config_for_ablation,
 )
 from experiments.ablation_runner import execute_variant_pipeline
 from module.runner import HarmfulMemePipeline
@@ -70,3 +71,29 @@ def test_ablation_runtime_metadata_matches_contracts():
 
     no_gate = execute_variant_pipeline(pipeline, sample, ablation=get_ablation_config("w_o_task_aware_gate"))
     assert "shared_gate" in no_gate["stage_d"].metadata.gate_mode
+
+
+def test_train_time_pipeline_ablation_metadata_matches_contracts():
+    pipeline = HarmfulMemePipeline().eval()
+    sample = {
+        "sample_id": "train_time_ablation",
+        "dataset_name": "harm_c",
+        "image_path": None,
+        "ocr_text_full": "THIS TEXT MOCKS A PUBLIC GROUP",
+        "raw_label": 1,
+    }
+
+    no_retrieval = pipeline(sample, ablation=runtime_config_for_ablation("w_o_retrieval"))
+    assert no_retrieval["stage_b"].metadata.retrieved_count == 0
+    assert no_retrieval["stage_b"].candidate_tokens.device == no_retrieval["stage_a"].internal_tokens.device
+    assert no_retrieval["stage_d"].metadata.verified_knowledge_count == 0
+
+    no_support = pipeline(sample, ablation=runtime_config_for_ablation("w_o_support_verifier"))
+    assert no_support["stage_c"].metadata.verification_policy["support_verifier_enabled"] is False
+    if no_support["stage_c"].support_matrix.numel():
+        assert float(no_support["stage_c"].support_matrix[:, 1:4].sum()) == 0.0
+
+    no_gate = pipeline(sample, ablation=runtime_config_for_ablation("w_o_task_aware_gate"))
+    assert "shared_gate" in no_gate["stage_d"].metadata.gate_mode
+    assert no_gate["stage_d"].metadata.analysis_hooks["task_aware_gate_enabled"] == 0.0
+    assert no_gate["stage_d"].shared_reasoning_state.requires_grad is True

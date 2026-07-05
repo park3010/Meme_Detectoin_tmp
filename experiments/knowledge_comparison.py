@@ -22,6 +22,7 @@ def run_knowledge_comparison(
     limit: int | None = None,
     disable_tqdm: bool = False,
     print_components: bool = False,
+    device: str = "cpu",
     suite_name: str | None = None,
     requested_command: str | None = None,
 ) -> dict[str, Any]:
@@ -42,6 +43,7 @@ def run_knowledge_comparison(
         analysis_builder=knowledge_analysis_record,
         disable_tqdm=disable_tqdm,
         print_components=print_components,
+        device=device,
     )
     metrics.update(_knowledge_summary(analysis))
     output_dir = Path(output_root) / "predictions" / dataset_name / f"knowledge_{mode}" / str(seed)

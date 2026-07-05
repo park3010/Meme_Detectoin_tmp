@@ -10,9 +10,9 @@ from torch import nn
 
 from dataset import MemeDataset
 from module.evidence_fusion_reasoning import EvidenceFusionReasoning
-from module.external_knowledge_acquisition import ExternalKnowledgeAcquisition
+from module.external_knowledge_acquisition import ExternalKnowledgeAcquisition, QueryBundle, StageBMetadata, StageBOutput
 from module.internal_evidence_extractor import InternalEvidenceExtractor
-from module.knowledge_filter_verifier import KnowledgeRelevanceFilterVerifier
+from module.knowledge_filter_verifier import KnowledgeRelevanceFilterVerifier, StageCMetadata, StageCOutput
 from module.structured_interpretation_head import StructuredInterpretationHead
 from utils.io import deep_update, load_yaml, write_json, write_jsonl
 from utils.logging_utils import setup_logger
@@ -118,33 +118,191 @@ class HarmfulMemePipeline(nn.Module):
         )
         self.stage_e = StructuredInterpretationHead(hidden_dim=hidden_dim)
 
-    def forward(self, sample: dict[str, Any], run_until: str = "e") -> dict[str, Any]:
+    def forward(self, sample: dict[str, Any], run_until: str = "e", *, ablation: Any | None = None) -> dict[str, Any]:
         """Run the pipeline through the requested final stage."""
 
         normalized_until = run_until.lower().replace("stage_", "")
         outputs: dict[str, Any] = {}
         stage_a = self.stage_a(sample)
+        if _flag(ablation, "disable_roi", "remove_roi"):
+            _remove_roi(stage_a)
+        if _flag(ablation, "disable_incongruity", "remove_incongruity"):
+            _remove_incongruity(stage_a)
         outputs["stage_a"] = stage_a
         if normalized_until == "a":
             return outputs
 
-        stage_b = self.stage_b(stage_a, sample.get("ocr_text_full", ""))
+        if _flag(ablation, "disable_retrieval"):
+            stage_b = _empty_stage_b(stage_a)
+        else:
+            stage_b = self.stage_b(stage_a, sample.get("ocr_text_full", ""))
+            if _flag(ablation, "disable_context_generation"):
+                _remove_generated_candidates(stage_b)
         outputs["stage_b"] = stage_b
         if normalized_until == "b":
             return outputs
 
-        stage_c = self.stage_c(stage_a, stage_b)
+        if _flag(ablation, "disable_retrieval"):
+            stage_c = _empty_stage_c(stage_a)
+        else:
+            old_min = self.stage_c.min_relevance
+            if _flag(ablation, "disable_relevance_scorer"):
+                self.stage_c.min_relevance = 0.0
+            stage_c = self.stage_c(stage_a, stage_b)
+            self.stage_c.min_relevance = old_min
+            if _flag(ablation, "disable_support_verifier"):
+                _neutralize_support(stage_c)
+            if _flag(ablation, "disable_temporal_cultural_validator"):
+                _neutralize_validity(stage_c)
         outputs["stage_c"] = stage_c
         if normalized_until == "c":
             return outputs
 
-        stage_d = self.stage_d(stage_a, stage_c)
+        stage_d = self.stage_d(stage_a, stage_c, disable_task_aware_gate=_flag(ablation, "disable_task_aware_gate"))
         outputs["stage_d"] = stage_d
         if normalized_until == "d":
             return outputs
 
         outputs["stage_e"] = self.stage_e(stage_a, stage_c, stage_d)
+        if _flag(ablation, "label_only_no_evidence"):
+            _label_only(outputs["stage_e"])
         return outputs
+
+
+def _flag(ablation: Any | None, *names: str) -> bool:
+    if ablation is None:
+        return False
+    for name in names:
+        if bool(getattr(ablation, name, False)):
+            return True
+    return False
+
+
+def _empty_stage_b(stage_a: Any) -> StageBOutput:
+    device = stage_a.internal_tokens.device
+    hidden_dim = int(stage_a.internal_tokens.size(-1))
+    return StageBOutput(
+        stage_a.sample_id,
+        stage_a.dataset_name,
+        QueryBundle(""),
+        [],
+        [],
+        torch.zeros(0, hidden_dim, device=device),
+        [],
+        StageBMetadata(
+            0,
+            0,
+            0,
+            0,
+            retrieval_stats={
+                "retrieval_enabled": False,
+                "context_generation_enabled": False,
+                "ablation_runtime": "train_time",
+            },
+            query_types={},
+        ),
+    )
+
+
+def _empty_stage_c(stage_a: Any) -> StageCOutput:
+    device = stage_a.internal_tokens.device
+    hidden_dim = int(stage_a.internal_tokens.size(-1))
+    return StageCOutput(
+        stage_a.sample_id,
+        stage_a.dataset_name,
+        [],
+        torch.zeros(0, hidden_dim, device=device),
+        torch.zeros(0, 6, device=device),
+        torch.zeros(0, device=device),
+        "",
+        StageCMetadata(
+            0,
+            0,
+            8,
+            0.05,
+            claim_types=["target", "intent", "tactic"],
+            score_fields=["relevance", "target_support", "intent_support", "tactic_support", "validity", "final"],
+            support_matrix_columns=["relevance", "target_support", "intent_support", "tactic_support", "validity", "final"],
+            verification_policy={"retrieval_disabled": True, "train_time_ablation": True},
+        ),
+    )
+
+
+def _remove_roi(stage_a: Any) -> None:
+    device = stage_a.internal_tokens.device
+    hidden_dim = int(stage_a.internal_tokens.size(-1))
+    stage_a.roi_tokens = torch.zeros(0, hidden_dim, device=device)
+    stage_a.evidence_items = [item for item in stage_a.evidence_items if item.evidence_type != "local_symbol"]
+    stage_a.metadata.roi_count = 0
+    stage_a.metadata.notes.append("ablation: roi/local_symbol evidence removed")
+
+
+def _remove_incongruity(stage_a: Any) -> None:
+    for item in stage_a.evidence_items:
+        if item.evidence_type == "cross_modal_incongruity":
+            item.score = 0.0
+            if item.token_index < stage_a.internal_tokens.size(0):
+                stage_a.internal_tokens[item.token_index] = 0
+    stage_a.auxiliary_scores["knowledge_need"] = 0.0
+    stage_a.auxiliary_scores["knowledge_need_score"] = 0.0
+    stage_a.auxiliary_scores["incongruity_score"] = 0.0
+    stage_a.metadata.notes.append("ablation: cross-modal incongruity neutralized")
+
+
+def _remove_generated_candidates(stage_b: StageBOutput) -> None:
+    kept = [candidate for candidate in stage_b.knowledge_candidates if candidate.candidate_type != "generated_hypothesis"]
+    _reset_candidates(stage_b, kept)
+    stage_b.generated_hypotheses = []
+    stage_b.metadata.generated_count = 0
+    stage_b.metadata.retrieval_stats["context_generation_enabled"] = False
+    stage_b.metadata.retrieval_stats["context_generation_ablation"] = True
+
+
+def _reset_candidates(stage_b: StageBOutput, kept: list[Any]) -> None:
+    device = stage_b.candidate_tokens.device
+    hidden_dim = int(stage_b.candidate_tokens.size(-1)) if stage_b.candidate_tokens.dim() == 2 else 256
+    indices = [candidate.token_index for candidate in kept if 0 <= candidate.token_index < stage_b.candidate_tokens.size(0)]
+    stage_b.knowledge_candidates = kept
+    stage_b.candidate_tokens = stage_b.candidate_tokens[indices] if indices else torch.zeros(0, hidden_dim, device=device)
+    for idx, candidate in enumerate(stage_b.knowledge_candidates):
+        candidate.token_index = idx
+
+
+def _neutralize_support(stage_c: StageCOutput) -> None:
+    if stage_c.support_matrix.numel():
+        stage_c.support_matrix[:, 1:4] = 0.0
+        support_free = (stage_c.support_matrix[:, 0] * stage_c.support_matrix[:, 4]).clamp(0.0, 1.0)
+        stage_c.support_matrix[:, 5] = support_free
+        stage_c.final_scores = support_free
+    for item in stage_c.verified_items:
+        item.support_label = "insufficient"
+        item.support_score = 0.0
+        item.final_score = float(stage_c.final_scores[item.token_index]) if 0 <= item.token_index < stage_c.final_scores.numel() else item.final_score
+        item.metadata["support_labels"] = {"target": "insufficient", "intent": "insufficient", "tactic": "insufficient"}
+        item.metadata["claim_support"] = {"target": 0.0, "intent": 0.0, "tactic": 0.0}
+        components = dict(item.metadata.get("final_score_components") or {})
+        components["support"] = 0.0
+        item.metadata["final_score_components"] = components
+    stage_c.metadata.verification_policy["support_verifier_enabled"] = False
+    stage_c.metadata.verification_policy["support_verifier_ablation"] = "train_time_neutralized"
+
+
+def _neutralize_validity(stage_c: StageCOutput) -> None:
+    if stage_c.support_matrix.numel():
+        stage_c.support_matrix[:, 4] = 1.0
+        stage_c.final_scores = stage_c.support_matrix[:, 5]
+    for item in stage_c.verified_items:
+        item.validity_score = 1.0
+        item.metadata["validity_components"] = {"credibility": 1.0, "temporal": 1.0, "cultural": 1.0}
+    stage_c.metadata.verification_policy["validity_enabled"] = False
+    stage_c.metadata.verification_policy["validity_ablation"] = "train_time_neutralized"
+
+
+def _label_only(stage_e: Any) -> None:
+    stage_e.supporting_evidence = {"internal": [], "external": []}
+    stage_e.rationale = ""
+    stage_e.structured_prediction["supporting_evidence"] = stage_e.supporting_evidence
+    stage_e.structured_prediction["rationale"] = ""
 
 
 # =============================================================================

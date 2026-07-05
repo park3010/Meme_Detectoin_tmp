@@ -76,9 +76,20 @@ for seed in "${SEED_ARRAY[@]}"; do
     if [[ "${RUN_ABLATIONS}" == "1" ]]; then
       for ablation in "${ABLATION_ARRAY[@]}"; do
         log_section "Phase 2: ablation=${ablation} dataset=${dataset} seed=${seed}"
-        run_with_optional_limit "${PYTHON}" scripts/run.py ablation \
-          --config "${CONFIG}" --dataset "${dataset}" --seed "${seed}" \
-          --ablation "${ablation}" --output-root "${OUTPUT_ROOT}"
+        case "${ablation}" in
+          w_o_retrieval|w_o_verifier|w_o_support_verifier|w_o_task_aware_gate|w_o_structured_auxiliary)
+            run_with_optional_limit "${PYTHON}" scripts/run.py train \
+              --config "${CONFIG}" --dataset "${dataset}" --seed "${seed}" \
+              --epochs "${EPOCHS}" --lr "${LR}" --patience "${PATIENCE}" \
+              --min-delta "${MIN_DELTA}" --early-stop-metric "${EARLY_STOP_METRIC}" \
+              --ablation-name "${ablation}" --device "${DEVICE}" --output-root "${OUTPUT_ROOT}"
+            ;;
+          *)
+            run_with_optional_limit "${PYTHON}" scripts/run.py ablation \
+              --config "${CONFIG}" --dataset "${dataset}" --seed "${seed}" \
+              --ablation "${ablation}" --device "${DEVICE}" --output-root "${OUTPUT_ROOT}"
+            ;;
+        esac
       done
     fi
 
@@ -87,7 +98,7 @@ for seed in "${SEED_ARRAY[@]}"; do
         log_section "Phase 2: knowledge=${mode} dataset=${dataset} seed=${seed}"
         run_with_optional_limit "${PYTHON}" scripts/run_knowledge_comparison.py \
           --config "${CONFIG}" --dataset "${dataset}" --seed "${seed}" \
-          --mode "${mode}" --output-root "${OUTPUT_ROOT}"
+          --mode "${mode}" --device "${DEVICE}" --output-root "${OUTPUT_ROOT}"
       done
     fi
 
@@ -95,7 +106,7 @@ for seed in "${SEED_ARRAY[@]}"; do
       log_section "Phase 2: fusion comparison dataset=${dataset} seed=${seed}"
       run_with_optional_limit "${PYTHON}" scripts/run.py ablation \
         --config "${CONFIG}" --dataset "${dataset}" --seed "${seed}" \
-        --ablation full --fusion-mode "${FUSION_ARRAY[@]}" --output-root "${OUTPUT_ROOT}"
+        --ablation full --fusion-mode "${FUSION_ARRAY[@]}" --device "${DEVICE}" --output-root "${OUTPUT_ROOT}"
     fi
   done
 done

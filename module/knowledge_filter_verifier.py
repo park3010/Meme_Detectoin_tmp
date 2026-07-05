@@ -85,7 +85,7 @@ class StageCOutput:
         """Return target/intent/tactic support columns from the 6-column matrix."""
 
         if self.support_matrix.numel() == 0:
-            return torch.zeros(0, 3, dtype=self.support_matrix.dtype)
+            return torch.zeros(0, 3, dtype=self.support_matrix.dtype, device=self.support_matrix.device)
         return self.support_matrix[:, 1:4]
 
     @property

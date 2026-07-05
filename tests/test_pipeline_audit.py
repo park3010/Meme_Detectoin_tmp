@@ -95,6 +95,7 @@ def test_ablation_manifest_allows_structured_auxiliary_four_loss_contract(tmp_pa
                 "schema": "experiment_run_manifest_v1",
                 "run_kind": "ablation",
                 "run_name": "ablation_w_o_structured_auxiliary",
+                "training_strategy": "train_time_variant",
                 "dataset": "harm_c",
                 "seed": 42,
                 "ablation_contract": {"name": "w_o_structured_auxiliary"},
@@ -115,6 +116,8 @@ def test_ablation_manifest_allows_structured_auxiliary_four_loss_contract(tmp_pa
         ),
         encoding="utf-8",
     )
+    (run_root / "best_model.pt").write_bytes(b"checkpoint")
+    (run_root / "validation_predictions.jsonl").write_text(json.dumps(_prediction_record()) + "\n", encoding="utf-8")
 
     result = audit_run_artifacts(run_root, strict=True, require_nonempty_metrics=True)
 
@@ -124,7 +127,7 @@ def test_ablation_manifest_allows_structured_auxiliary_four_loss_contract(tmp_pa
     assert result["ablation_contract"]["ablation_contract_passed"] is True
 
 
-def test_evaluation_time_ablation_manifest_does_not_require_training_log(tmp_path: Path):
+def test_evaluation_time_diagnostic_ablation_manifest_does_not_require_training_log(tmp_path: Path):
     run_root = _write_artifacts(tmp_path, metrics={"accuracy": 1.0, "macro_f1": 1.0})
     (run_root / "training_log.json").unlink()
     (run_root / "run_manifest.json").write_text(
@@ -133,7 +136,7 @@ def test_evaluation_time_ablation_manifest_does_not_require_training_log(tmp_pat
                 "schema": "experiment_run_manifest_v1",
                 "run_kind": "ablation",
                 "run_name": "ablation_w_o_retrieval",
-                "training_strategy": "evaluation_time_variant",
+                "training_strategy": "evaluation_time_diagnostic",
                 "dataset": "harm_c",
                 "seed": 42,
                 "ablation_contract": {"name": "w_o_retrieval"},
@@ -166,6 +169,54 @@ def test_evaluation_time_ablation_manifest_does_not_require_training_log(tmp_pat
     assert result["passed"] is True
     assert result["training_log"]["training_log_required"] is False
     assert result["ablation_contract"]["ablation_contract_passed"] is True
+
+
+def test_train_time_ablation_requires_checkpoint_and_validation_predictions(tmp_path: Path):
+    run_root = _write_artifacts(tmp_path, metrics={"accuracy": 1.0, "macro_f1": 1.0})
+    (run_root / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema": "experiment_run_manifest_v1",
+                "run_kind": "ablation",
+                "run_name": "ablation_w_o_retrieval",
+                "training_strategy": "train_time_variant",
+                "dataset": "harm_c",
+                "seed": 42,
+                "ablation_contract": {"name": "w_o_retrieval"},
+                "component_state": {
+                    "stage_a_roi_enabled": True,
+                    "stage_a_incongruity_enabled": True,
+                    "stage_b_retrieval_enabled": False,
+                    "stage_b_context_generation_enabled": False,
+                    "stage_c_relevance_enabled": True,
+                    "stage_c_support_verifier_enabled": True,
+                    "stage_c_validity_enabled": True,
+                    "stage_d_task_aware_gate_enabled": True,
+                    "stage_e_structured_auxiliary_enabled": True,
+                },
+                "expected_active_logits_losses": [
+                    "harmfulness",
+                    "target_granularity",
+                    "target_presence",
+                    "intent_primary",
+                    "tactic_rhetorical",
+                    "tactic_multimodal_relation",
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    missing = audit_run_artifacts(run_root, strict=True)
+    assert missing["passed"] is False
+    assert any("best_model.pt" in error for error in missing["errors"])
+    assert any("validation_predictions.jsonl" in error for error in missing["errors"])
+
+    (run_root / "best_model.pt").write_bytes(b"checkpoint")
+    (run_root / "validation_predictions.jsonl").write_text(json.dumps(_prediction_record()) + "\n", encoding="utf-8")
+    present = audit_run_artifacts(run_root, strict=True)
+    assert present["train_time_artifacts"]["best_model_found"] is True
+    assert present["train_time_artifacts"]["validation_predictions_found"] is True
 
 
 def test_formal_tactic_audit_rejects_rendered_label_artifact(tmp_path: Path):
