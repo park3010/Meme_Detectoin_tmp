@@ -13,7 +13,7 @@ from experiments.ablation_configs import TRAIN_TIME_CORE_ABLATIONS, component_st
 from experiments.ablation_runner import run_ablation_experiment
 from experiments.knowledge_comparison import run_knowledge_comparison
 from experiments.pipeline_audit import audit_run_artifacts, format_audit_summary, write_audit_report
-from experiments.progress import progress_iter
+from experiments.progress import ProgressConfig, progress_iter, progress_write, set_progress_postfix
 from experiments.run_manifest import current_command, update_run_manifest
 from experiments.splits import build_splits_for_dataset, normalize_dataset_names, save_splits
 from experiments.train import BaselineRunConfig, OursRunConfig, run_baseline_experiment, run_ours_experiment
@@ -185,18 +185,34 @@ def run_suite(args: Any) -> dict[str, Any]:
         split_file=args.split_file,
         dry_run=args.dry_run,
     )
-    _print_plan(plan)
+    progress_config = getattr(args, "progress_config", None) or ProgressConfig(
+        disable=True if getattr(args, "disable_tqdm", False) else None
+    )
+    _print_plan(plan, progress_config=progress_config, dry_run=bool(args.dry_run))
     if args.dry_run:
         return {"dry_run": True, "planned_runs": len(plan.runs)}
 
     manifest = _suite_manifest(plan, args, status="running")
     write_json(plan.suite_manifest_path, manifest)
     statuses: list[dict[str, Any]] = []
-    run_iter = progress_iter(plan.runs, desc=f"suite {plan.name}", disable=args.disable_tqdm)
+    run_iter = progress_iter(
+        plan.runs,
+        desc=plan.name,
+        config=progress_config,
+        total=len(plan.runs),
+        position=0,
+        leave=progress_config.leave_suite,
+    )
     for index, run in enumerate(run_iter, start=1):
-        print(f"[suite:{plan.name}] [{index}/{len(plan.runs)}] {run.dataset} seed={run.seed} {run.run_name}")
+        set_progress_postfix(run_iter, dataset=run.dataset, run=run.run_name, seed=run.seed, status="running")
+        if progress_config.disable is True:
+            progress_write(
+                f"[suite:{plan.name}] [{index}/{len(plan.runs)}] {run.dataset} seed={run.seed} {run.run_name}",
+                config=progress_config,
+            )
         _ensure_split(run, args)
         if (args.resume or args.skip_complete) and _is_complete(run, args):
+            set_progress_postfix(run_iter, dataset=run.dataset, run=run.run_name, seed=run.seed, status="skipped")
             statuses.append(_status(run, "skipped_complete"))
             continue
         try:
@@ -208,7 +224,9 @@ def run_suite(args: Any) -> dict[str, Any]:
                 if args.strict and audit.get("errors"):
                     raise RuntimeError(f"Audit failed for {run.run_name}: {audit.get('errors')}")
             statuses.append(_status(run, "complete", metrics=metrics, audit=audit))
+            set_progress_postfix(run_iter, dataset=run.dataset, run=run.run_name, seed=run.seed, status="complete")
         except Exception as exc:  # pragma: no cover - exercised by CLI failure paths.
+            set_progress_postfix(run_iter, dataset=run.dataset, run=run.run_name, seed=run.seed, status="failed")
             statuses.append(_status(run, "failed", error=str(exc)))
             manifest["runs"] = statuses
             manifest["status"] = "failed"
@@ -225,7 +243,7 @@ def run_suite(args: Any) -> dict[str, Any]:
     manifest["runs"] = statuses
     manifest["completed_run_count"] = len([row for row in statuses if row["status"] in {"complete", "skipped_complete"}])
     write_json(plan.suite_manifest_path, manifest)
-    print(f"Suite manifest: {plan.suite_manifest_path}")
+    progress_write(f"Suite manifest: {plan.suite_manifest_path}", config=progress_config)
     return manifest
 
 
@@ -251,6 +269,7 @@ def _execute_run(run: SuiteRun, args: Any) -> dict[str, Any]:
                 limit=run.limit,
                 suite_name=run.suite_name,
                 requested_command=command,
+                progress=getattr(args, "progress_config", None),
             )
         )
     if run.run_kind == "baseline":
@@ -273,6 +292,7 @@ def _execute_run(run: SuiteRun, args: Any) -> dict[str, Any]:
                 limit=run.limit,
                 suite_name=run.suite_name,
                 requested_command=command,
+                progress=getattr(args, "progress_config", None),
             )
         )
     if run.run_kind == "ablation":
@@ -298,6 +318,7 @@ def _execute_run(run: SuiteRun, args: Any) -> dict[str, Any]:
                     structured_auxiliary=(run.ablation != "w_o_structured_auxiliary"),
                     suite_name=run.suite_name,
                     requested_command=command,
+                    progress=getattr(args, "progress_config", None),
                 )
             )
         return run_ablation_experiment(
@@ -309,6 +330,7 @@ def _execute_run(run: SuiteRun, args: Any) -> dict[str, Any]:
             output_root=run.output_root,
             limit=run.limit,
             disable_tqdm=args.disable_tqdm,
+            progress=getattr(args, "progress_config", None),
             print_components=args.print_components,
             device=run.device,
             suite_name=run.suite_name,
@@ -324,6 +346,7 @@ def _execute_run(run: SuiteRun, args: Any) -> dict[str, Any]:
             output_root=run.output_root,
             limit=run.limit,
             disable_tqdm=args.disable_tqdm,
+            progress=getattr(args, "progress_config", None),
             print_components=args.print_components,
             device=run.device,
             suite_name=run.suite_name,
@@ -360,7 +383,7 @@ def _audit_run(run: SuiteRun, args: Any, plan: SuitePlan) -> dict[str, Any]:
         strict=args.strict,
     )
     write_audit_report(result, run.output_dir / "pipeline_audit_report.md")
-    print(format_audit_summary(result))
+    progress_write(format_audit_summary(result), config=getattr(args, "progress_config", None))
     return result
 
 
@@ -465,12 +488,14 @@ def _compact_audit(audit: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _print_plan(plan: SuitePlan) -> None:
-    print(f"Experiment suite: {plan.name}")
-    print(f"Description: {plan.description}")
-    print(f"Runs planned: {len(plan.runs)}")
+def _print_plan(plan: SuitePlan, *, progress_config: ProgressConfig, dry_run: bool = False) -> None:
+    progress_write(f"Experiment suite: {plan.name}", config=progress_config)
+    progress_write(f"Description: {plan.description}", config=progress_config)
+    progress_write(f"Runs planned: {len(plan.runs)}", config=progress_config)
+    if not dry_run and progress_config.disable is not True:
+        return
     for index, run in enumerate(plan.runs, start=1):
         details = f"{run.run_kind}:{run.run_name} dataset={run.dataset} seed={run.seed} split={run.split_file}"
         if run.ablation:
             details += f" component_state={component_state_for_ablation(run.ablation)}"
-        print(f"  [{index:02d}] {details}")
+        progress_write(f"  [{index:02d}] {details}", config=progress_config)

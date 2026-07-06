@@ -85,3 +85,21 @@ Ablation semantics are declared in `experiments/ablation_configs.py` as `Ablatio
 - Predictions: `result/predictions/{dataset}/{model}/{seed}/final_predictions.jsonl`
 - Metrics: `result/predictions/{dataset}/{model}/{seed}/metrics.json` and `result/metrics/`
 - Audit report: `result/predictions/{dataset}/{model}/{seed}/pipeline_audit_report.md`
+# Unified CLI And Progress
+
+The main experiment entry point is now `python scripts/run.py ...`. Core commands remain `train`, `baseline`, `stage`, `assets`, `evaluate`, `ablation`, `audit`, `suite`, and `preflight`; grouped helpers now live under `data`, `report`, and `analysis`.
+
+Execution for Ours Full remains:
+
+```text
+scripts/run.py train
+-> experiments/train.py
+-> module/runner.py HarmfulMemePipeline
+-> Stage A -> Stage B -> Stage C -> Stage D -> Stage E
+-> module/losses.py
+-> experiments/evaluation.py / experiments/prediction_io.py
+```
+
+Progress bars are controlled by `experiments/progress.py` and the CLI flags `--disable-tqdm`, `--tqdm-mininterval`, and `--tqdm-leave`. The suite bar uses position 0, epoch bars use position 1, and sample/batch bars use position 2.
+
+See `docs/CODE_ORGANIZATION.md` for the current scripts, experiments, and tests layout.

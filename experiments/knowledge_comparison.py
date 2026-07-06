@@ -8,6 +8,7 @@ from typing import Any
 from experiments.ablation_configs import KNOWLEDGE_MODES
 from experiments.ablation_runner import append_metric_row, knowledge_analysis_record, run_framework_variant
 from experiments.prediction_io import save_predictions_and_metrics
+from experiments.progress import ProgressConfig
 from experiments.run_manifest import build_run_manifest, current_command, write_run_manifest
 from utils.io import write_jsonl
 
@@ -21,6 +22,7 @@ def run_knowledge_comparison(
     output_root: str = "result",
     limit: int | None = None,
     disable_tqdm: bool = False,
+    progress: ProgressConfig | None = None,
     print_components: bool = False,
     device: str = "cpu",
     suite_name: str | None = None,
@@ -42,6 +44,7 @@ def run_knowledge_comparison(
         fusion_mode="task_aware_gate_verified",
         analysis_builder=knowledge_analysis_record,
         disable_tqdm=disable_tqdm,
+        progress=progress,
         print_components=print_components,
         device=device,
     )

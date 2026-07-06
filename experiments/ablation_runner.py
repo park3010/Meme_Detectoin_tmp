@@ -20,7 +20,7 @@ from experiments.ablation_configs import (
 )
 from experiments.evaluation import compute_harmfulness_metrics
 from experiments.prediction_io import save_predictions_and_metrics, stage_outputs_to_prediction_record
-from experiments.progress import progress_iter
+from experiments.progress import ProgressConfig, progress_iter
 from experiments.run_manifest import build_run_manifest, current_command, write_run_manifest
 from experiments.splits import build_splits_for_dataset, label_to_int, load_split_file, save_splits, split_samples
 from experiments.evaluation import evaluate_structured_predictions
@@ -40,6 +40,7 @@ def run_ablation_experiment(
     output_root: str = "result",
     limit: int | None = None,
     disable_tqdm: bool = False,
+    progress: ProgressConfig | None = None,
     print_components: bool = False,
     device: str = "cpu",
     suite_name: str | None = None,
@@ -58,6 +59,7 @@ def run_ablation_experiment(
         limit=limit,
         ablation=config,
         disable_tqdm=disable_tqdm,
+        progress=progress,
         print_components=print_components,
         device=device,
     )
@@ -96,6 +98,7 @@ def run_fusion_experiment(
     output_root: str = "result",
     limit: int | None = None,
     disable_tqdm: bool = False,
+    progress: ProgressConfig | None = None,
     print_components: bool = False,
     device: str = "cpu",
     suite_name: str | None = None,
@@ -116,6 +119,7 @@ def run_fusion_experiment(
         fusion_mode=fusion_mode,
         analysis_builder=gate_summary_record,
         disable_tqdm=disable_tqdm,
+        progress=progress,
         print_components=print_components,
         device=device,
     )
@@ -158,6 +162,7 @@ def run_framework_variant(
     fusion_mode: str = "task_aware_gate_verified",
     analysis_builder: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]] | None = None,
     disable_tqdm: bool = False,
+    progress: ProgressConfig | None = None,
     print_components: bool = False,
     device: str = "cpu",
 ) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
@@ -187,7 +192,14 @@ def run_framework_variant(
     analysis: list[dict[str, Any]] = []
     analysis_builder = analysis_builder or gate_summary_record
     desc = ablation.name if ablation else f"knowledge {knowledge_mode}"
-    for sample in progress_iter(test_samples, desc=desc, disable=disable_tqdm, leave=False):
+    progress_config = progress or ProgressConfig(disable=True if disable_tqdm else None)
+    for sample in progress_iter(
+        test_samples,
+        desc=desc,
+        config=progress_config,
+        position=2,
+        leave=progress_config.leave_batch,
+    ):
         outputs = execute_variant_pipeline(pipeline, sample, ablation=ablation, knowledge_mode=knowledge_mode, fusion_mode=fusion_mode)
         extra = {
             "ablation": ablation.name if ablation else None,

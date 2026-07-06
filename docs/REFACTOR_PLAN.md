@@ -31,3 +31,15 @@ This refactor reduces implementation fragmentation while preserving model behavi
 ## Cleanup Note
 
 The consolidated modules are now active. Removing obsolete duplicate directories/scripts requires explicit deletion approval in this sandbox because the broad cleanup command was blocked by the safety layer.
+# Current Cleanup Snapshot
+
+This pass consolidated experiment UX around:
+
+- `experiments/progress.py` as the only tqdm/fallback API.
+- `scripts/run.py` as the unified Python CLI.
+- `scripts/commands/data.py`, `scripts/commands/report.py`, and `scripts/commands/analysis.py` as thin grouped command adapters.
+- Shell presets that route Python work through `scripts/run.py`.
+
+No Stage A-E architecture, dataset paths, normalized label semantics, split policy, loss formulas, formal tactic-rhetorical metrics, ablation semantics, run manifests, or audit meanings were changed.
+
+See `docs/CODE_ORGANIZATION.md` for the concrete file map and migration table.

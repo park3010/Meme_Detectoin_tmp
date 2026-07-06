@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from dataset import MemeDataset
 from experiments.evaluation import compute_harmfulness_metrics
 from experiments.prediction_io import save_predictions_and_metrics, stage_outputs_to_prediction_record
-from experiments.progress import progress_iter
+from experiments.progress import ProgressConfig, progress_iter
 from experiments.splits import build_splits_for_dataset, label_to_int, load_split_file, save_splits, split_samples
 from experiments.evaluation import evaluate_structured_predictions
 from experiments.train import OursRunConfig, configure_trainable_parameters
@@ -45,6 +45,7 @@ class CrossDomainConfig:
     limit: int | None = None
     split_file: str | None = None
     disable_tqdm: bool = False
+    progress: ProgressConfig | None = None
 
 
 def run_cross_domain(config: CrossDomainConfig) -> list[dict[str, Any]]:
@@ -54,7 +55,14 @@ def run_cross_domain(config: CrossDomainConfig) -> list[dict[str, Any]]:
         raise ValueError(f"Unsupported cross-domain setting: {config.setting}")
     rows: list[dict[str, Any]] = []
     plan = _plan_runs(config)
-    for train_domains, test_domain, label in progress_iter(plan, desc=f"cross-domain {config.setting}", disable=config.disable_tqdm):
+    progress_config = _progress_config(config)
+    for train_domains, test_domain, label in progress_iter(
+        plan,
+        desc=f"cross-domain {config.setting}",
+        config=progress_config,
+        position=1,
+        leave=progress_config.leave_epoch,
+    ):
         predictions, metrics = _run_train_test(config, train_domains, test_domain)
         metrics["performance_drop_vs_in_domain"] = _performance_drop(config, test_domain, metrics)
         output_dir = (
@@ -124,7 +132,15 @@ def _train_lightweight_pipeline(
     config: CrossDomainConfig,
     device: torch.device,
 ) -> None:
-    train_cfg = OursRunConfig(dataset_name="mixed", seed=config.seed, config_path=config.config_path, epochs=config.epochs, lr=config.lr)
+    progress_config = _progress_config(config)
+    train_cfg = OursRunConfig(
+        dataset_name="mixed",
+        seed=config.seed,
+        config_path=config.config_path,
+        epochs=config.epochs,
+        lr=config.lr,
+        progress=progress_config,
+    )
     configure_trainable_parameters(pipeline, train_cfg)
     params = [param for param in pipeline.parameters() if param.requires_grad]
     if not params:
@@ -133,9 +149,21 @@ def _train_lightweight_pipeline(
     loss_fn = StructuredMemeLoss()
     best_state: dict[str, torch.Tensor] | None = None
     best_valid = float("-inf")
-    for epoch in progress_iter(range(1, config.epochs + 1), desc="cross-domain train", disable=config.disable_tqdm):
+    for epoch in progress_iter(
+        range(1, config.epochs + 1),
+        desc="cross-domain train",
+        config=progress_config,
+        position=1,
+        leave=progress_config.leave_epoch,
+    ):
         pipeline.train()
-        for sample in progress_iter(train_samples, desc=f"train epoch {epoch}/{config.epochs}", disable=config.disable_tqdm, leave=False):
+        for sample in progress_iter(
+            train_samples,
+            desc=f"train epoch {epoch}/{config.epochs}",
+            config=progress_config,
+            position=2,
+            leave=progress_config.leave_batch,
+        ):
             outputs = pipeline(sample)
             stage_e = outputs["stage_e"]
             losses = loss_fn(stage_e, extract_supervision_from_annotation(sample))
@@ -156,9 +184,16 @@ def _train_lightweight_pipeline(
 @torch.no_grad()
 def _evaluate_pipeline(pipeline: HarmfulMemePipeline, samples: list[dict[str, Any]], config: CrossDomainConfig) -> list[dict[str, Any]]:
     pipeline.eval()
+    progress_config = _progress_config(config)
     return [
         stage_outputs_to_prediction_record(sample, pipeline(sample), model_name=config.model_name, seed=config.seed)
-        for sample in progress_iter(samples, desc=f"cross-domain eval {config.model_name}", disable=config.disable_tqdm, leave=False)
+        for sample in progress_iter(
+            samples,
+            desc=f"cross-domain eval {config.model_name}",
+            config=progress_config,
+            position=2,
+            leave=progress_config.leave_batch,
+        )
     ]
 
 
@@ -232,3 +267,7 @@ def _append_row(path: Path, row: dict[str, Any]) -> None:
         if not exists:
             writer.writeheader()
         writer.writerow(row)
+
+
+def _progress_config(config: CrossDomainConfig) -> ProgressConfig:
+    return config.progress or ProgressConfig(disable=True if config.disable_tqdm else None)

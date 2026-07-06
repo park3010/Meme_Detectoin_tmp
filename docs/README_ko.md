@@ -132,3 +132,16 @@ ablation 의미와 감사(audit) 기준은 `experiments/ablation_configs.py`의 
 ```text
 result/predictions/{dataset}/{model}/{seed}/tactic_rhetorical_decoding.json
 ```
+# 실행 CLI 업데이트
+
+실험 실행은 `python scripts/run.py ...`를 기본 진입점으로 사용합니다. 데이터 준비는 `data`, 결과 집계는 `report`, 분석 실험은 `analysis` 하위 명령으로 묶었습니다.
+
+예시:
+
+```bash
+python scripts/run.py data dataset-stats --dataset all
+python scripts/run.py suite --suite core_smoke --config configs/config.yaml --device cpu
+python scripts/run.py train --dataset harm_c --seed 42 --epochs 1 --limit 20
+```
+
+진행률 표시는 `experiments/progress.py`에서 공통 관리하며 `--disable-tqdm`, `--tqdm-mininterval`, `--tqdm-leave` 옵션을 지원합니다. 자세한 구조와 이전 명령 대응표는 `docs/CODE_ORGANIZATION.md`를 참고하세요.

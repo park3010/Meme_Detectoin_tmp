@@ -45,10 +45,10 @@ run_with_optional_limit() {
 }
 
 log_section "Core 1-seed: dataset statistics"
-run_cmd "${PYTHON}" scripts/run_dataset_stats.py --config "${CONFIG}" --dataset all --output-root "${OUTPUT_ROOT}/dataset_stats"
+run_cmd "${PYTHON}" scripts/run.py data dataset-stats --config "${CONFIG}" --dataset all --output-root "${OUTPUT_ROOT}/dataset_stats"
 
 log_section "Core 1-seed: split generation seed=${SEED}"
-run_with_optional_limit "${PYTHON}" scripts/make_splits.py \
+run_with_optional_limit "${PYTHON}" scripts/run.py data make-splits \
   --config "${CONFIG}" --dataset all --seed "${SEED}" --output-root "${OUTPUT_ROOT}/splits"
 
 for dataset in "${DATASET_ARRAY[@]}"; do
@@ -89,15 +89,15 @@ for dataset in "${DATASET_ARRAY[@]}"; do
 
   for mode in no_knowledge retrieved_only verified; do
     log_section "Core 1-seed: knowledge=${mode} dataset=${dataset}"
-    run_with_optional_limit "${PYTHON}" scripts/run_knowledge_comparison.py \
+    run_with_optional_limit "${PYTHON}" scripts/run.py analysis knowledge-comparison \
       --config "${CONFIG}" --dataset "${dataset}" --seed "${SEED}" \
       --mode "${mode}" --device "${DEVICE}" --output-root "${OUTPUT_ROOT}"
   done
 done
 
 log_section "Core 1-seed: aggregation and paper tables"
-run_cmd "${PYTHON}" scripts/aggregate_results.py --predictions-root "${OUTPUT_ROOT}/predictions" --output-root "${OUTPUT_ROOT}/metrics"
-run_cmd "${PYTHON}" scripts/aggregate_structured_results.py --predictions-root "${OUTPUT_ROOT}/predictions" --output-root "${OUTPUT_ROOT}/metrics"
-run_cmd "${PYTHON}" scripts/export_paper_tables.py --result-root "${OUTPUT_ROOT}"
+run_cmd "${PYTHON}" scripts/run.py report aggregate --predictions-root "${OUTPUT_ROOT}/predictions" --output-root "${OUTPUT_ROOT}/metrics"
+run_cmd "${PYTHON}" scripts/run.py report aggregate-structured --predictions-root "${OUTPUT_ROOT}/predictions" --output-root "${OUTPUT_ROOT}/metrics"
+run_cmd "${PYTHON}" scripts/run.py report export-paper-tables --result-root "${OUTPUT_ROOT}"
 
 log_section "Core 1-seed complete"

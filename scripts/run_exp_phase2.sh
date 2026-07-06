@@ -96,7 +96,7 @@ for seed in "${SEED_ARRAY[@]}"; do
     if [[ "${RUN_KNOWLEDGE}" == "1" ]]; then
       for mode in "${KNOWLEDGE_ARRAY[@]}"; do
         log_section "Phase 2: knowledge=${mode} dataset=${dataset} seed=${seed}"
-        run_with_optional_limit "${PYTHON}" scripts/run_knowledge_comparison.py \
+        run_with_optional_limit "${PYTHON}" scripts/run.py analysis knowledge-comparison \
           --config "${CONFIG}" --dataset "${dataset}" --seed "${seed}" \
           --mode "${mode}" --device "${DEVICE}" --output-root "${OUTPUT_ROOT}"
       done
@@ -112,7 +112,7 @@ for seed in "${SEED_ARRAY[@]}"; do
 done
 
 log_section "Phase 2: aggregate structured metrics"
-run_cmd "${PYTHON}" scripts/aggregate_structured_results.py \
+run_cmd "${PYTHON}" scripts/run.py report aggregate-structured \
   --predictions-root "${OUTPUT_ROOT}/predictions" --output-root "${OUTPUT_ROOT}/metrics"
 
 log_section "Experiment Phase 2 complete"

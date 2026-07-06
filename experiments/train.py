@@ -21,7 +21,7 @@ from experiments.evaluation import (
     evaluate_tactic_rhetorical_logits_only,
 )
 from experiments.prediction_io import save_predictions_and_metrics, stage_outputs_to_prediction_record
-from experiments.progress import progress_iter
+from experiments.progress import ProgressConfig, progress_iter, progress_write, set_progress_postfix
 from experiments.pretrained_assets import build_asset_provenance
 from experiments.run_manifest import build_data_snapshot, build_run_manifest, collect_backbone_state, current_command, sha256_file, write_run_manifest
 from experiments.splits import build_splits_for_dataset, label_to_int, load_split_file, save_splits, split_samples
@@ -87,6 +87,7 @@ class OursRunConfig:
     ablation_name: str | None = None
     suite_name: str | None = None
     requested_command: str | None = None
+    progress: ProgressConfig | None = None
 
 
 def run_ours_experiment(config: OursRunConfig) -> dict[str, Any]:
@@ -98,9 +99,11 @@ def run_ours_experiment(config: OursRunConfig) -> dict[str, Any]:
     samples = _materialize_ours_samples(dataset, prefer_normalized=config.use_normalized_labels)
     split_dataset = dataset.base_dataset if isinstance(dataset, NormalizedMemeDataset) else dataset
     if config.use_normalized_labels and not samples:
-        print(
+        progress_write(
             f"[normalized-labels] No usable normalized labels for {config.dataset_name}; "
             "falling back to raw_label supervision."
+            ,
+            config=_progress_config(config),
         )
         dataset = _load_ours_legacy_dataset(config, cfg)
         split_dataset = dataset
@@ -127,18 +130,25 @@ def run_ours_experiment(config: OursRunConfig) -> dict[str, Any]:
     validation_samples = materialized.get("valid", [])
     early_stopping_active = stopper.enabled and bool(validation_samples)
     if stopper.enabled and not validation_samples:
-        print(f"[early-stopping] Validation split is empty for {config.dataset_name}/{config.model_name}; training for all {config.epochs} epochs.")
+        progress_write(
+            f"[early-stopping] Validation split is empty for {config.dataset_name}/{config.model_name}; training for all {config.epochs} epochs.",
+            config=_progress_config(config),
+        )
     training_log: list[dict[str, Any]] = []
     best_checkpoint_path = output_dir / "best_model.pt"
     last_checkpoint_path = output_dir / "last_model.pt"
+    progress_config = _progress_config(config)
     epoch_iter = progress_iter(
         range(1, config.epochs + 1),
         desc=f"{config.model_name} {config.dataset_name} seed={config.seed}",
-        disable=config.disable_tqdm,
+        config=progress_config,
+        position=1,
+        leave=progress_config.leave_epoch,
     )
     for epoch in epoch_iter:
         pipeline.train()
-        epoch_losses: list[float] = []
+        loss_sum = 0.0
+        loss_count = 0
         component_sums: dict[str, float] = defaultdict(float)
         component_counts: dict[str, int] = defaultdict(int)
         component_grad_counts: dict[str, int] = defaultdict(int)
@@ -147,8 +157,9 @@ def run_ours_experiment(config: OursRunConfig) -> dict[str, Any]:
         train_iter = progress_iter(
             materialized.get("train", []),
             desc=f"train epoch {epoch}/{config.epochs}",
-            disable=config.disable_tqdm,
-            leave=False,
+            config=progress_config,
+            position=2,
+            leave=progress_config.leave_batch,
         )
         for sample in train_iter:
             outputs = pipeline(sample, ablation=ablation_runtime)
@@ -184,9 +195,15 @@ def run_ours_experiment(config: OursRunConfig) -> dict[str, Any]:
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            epoch_losses.append(float(loss.detach().cpu()))
-            if hasattr(train_iter, "set_postfix"):
-                train_iter.set_postfix(loss=f"{epoch_losses[-1]:.4f}")
+            current_loss = float(loss.detach().cpu())
+            loss_sum += current_loss
+            loss_count += 1
+            set_progress_postfix(
+                train_iter,
+                loss=f"{current_loss:.4f}",
+                running_loss=f"{loss_sum / max(1, loss_count):.4f}",
+                learning_rate=f"{config.lr:.2e}",
+            )
         valid_metrics, _ = evaluate_ours_pipeline(pipeline, validation_samples, config, device=device, desc="valid")
         current_metric = metric_from_validation(
             valid_metrics,
@@ -230,7 +247,7 @@ def run_ours_experiment(config: OursRunConfig) -> dict[str, Any]:
         )
         log_row = {
             "epoch": epoch,
-            "train_loss": sum(epoch_losses) / max(1, len(epoch_losses)),
+            "train_loss": loss_sum / max(1, loss_count),
             "split_sizes": {
                 "train": len(materialized.get("train", [])),
                 "valid": len(validation_samples),
@@ -248,13 +265,14 @@ def run_ours_experiment(config: OursRunConfig) -> dict[str, Any]:
             **status,
         }
         training_log.append(log_row)
-        if hasattr(epoch_iter, "set_postfix"):
-            epoch_iter.set_postfix(
-                loss=f"{log_row['train_loss']:.4f}",
-                metric=current_metric,
-                best=stopper.best_metric,
-                patience=stopper.counter,
-            )
+        set_progress_postfix(
+            epoch_iter,
+            epoch=epoch,
+            train_loss=f"{log_row['train_loss']:.4f}",
+            val_macro_f1=valid_metrics.get("macro_f1") or valid_metrics.get("harmfulness_macro_f1"),
+            best_val_macro_f1=stopper.best_metric,
+            best_epoch=stopper.best_epoch,
+        )
         if status["stopped_early"]:
             break
 
@@ -304,10 +322,12 @@ def run_ours_experiment(config: OursRunConfig) -> dict[str, Any]:
     save_predictions_and_metrics(output_dir, predictions, metrics)
     manifest = _ours_manifest(config, pipeline)
     write_run_manifest(output_dir, manifest)
-    print(
+    progress_write(
         f"[early-stopping] {config.dataset_name}/{config.model_name}/seed={config.seed}: "
         f"best_epoch={stopper.best_epoch} best_{config.early_stop_metric}={stopper.best_metric} "
         f"stopped_early={stopper.stopped_early} checkpoint={best_checkpoint_path if config.save_best else 'disabled'}"
+        ,
+        config=progress_config,
     )
     return metrics
 
@@ -326,7 +346,14 @@ def evaluate_ours_pipeline(
     ablation_runtime = runtime_config_for_ablation(config.ablation_name)
     pipeline.eval()
     predictions: list[dict[str, Any]] = []
-    for sample in progress_iter(samples, desc=desc, disable=config.disable_tqdm, leave=False):
+    progress_config = _progress_config(config)
+    for sample in progress_iter(
+        samples,
+        desc=desc,
+        config=progress_config,
+        position=2,
+        leave=progress_config.leave_batch,
+    ):
         outputs = pipeline(sample, ablation=ablation_runtime)
         predictions.append(stage_outputs_to_prediction_record(sample, outputs, model_name=config.model_name, seed=config.seed))
     harmfulness = compute_harmfulness_metrics(
@@ -334,7 +361,7 @@ def evaluate_ours_pipeline(
         [record["pred_label"] for record in predictions if record.get("gold_label") is not None],
         [record["prob_harmful"] for record in predictions if record.get("gold_label") is not None],
     )
-    structured = evaluate_structured_predictions(predictions)
+    structured = evaluate_structured_predictions(predictions, disable_tqdm=config.disable_tqdm, progress=progress_config)
     metrics = {**harmfulness, **structured}
     return metrics, predictions
 
@@ -570,6 +597,7 @@ class BaselineRunConfig:
     use_sample_weight: bool = False
     suite_name: str | None = None
     requested_command: str | None = None
+    progress: ProgressConfig | None = None
 
 
 def run_baseline_experiment(config: BaselineRunConfig) -> dict[str, Any]:
@@ -586,9 +614,11 @@ def run_baseline_experiment(config: BaselineRunConfig) -> dict[str, Any]:
             continue
     split_dataset = dataset.base_dataset if isinstance(dataset, NormalizedMemeDataset) else dataset
     if config.use_normalized_labels and not sample_dicts:
-        print(
+        progress_write(
             f"[normalized-labels] No usable normalized labels for {config.dataset_name}; "
             "falling back to raw_label supervision."
+            ,
+            config=_progress_config(config),
         )
         dataset = _load_baseline_legacy_dataset(config, cfg)
         split_dataset = dataset
@@ -612,14 +642,20 @@ def run_baseline_experiment(config: BaselineRunConfig) -> dict[str, Any]:
     validation_samples = materialized.get("valid", [])
     early_stopping_active = stopper.enabled and bool(validation_samples)
     if stopper.enabled and not validation_samples:
-        print(f"[early-stopping] Validation split is empty for {config.dataset_name}/{config.model_name}; training for all {config.epochs} epochs.")
+        progress_write(
+            f"[early-stopping] Validation split is empty for {config.dataset_name}/{config.model_name}; training for all {config.epochs} epochs.",
+            config=_progress_config(config),
+        )
     training_log: list[dict[str, Any]] = []
     best_checkpoint_path = output_dir / "best_model.pt"
     last_checkpoint_path = output_dir / "last_model.pt"
+    progress_config = _progress_config(config)
     epoch_iter = progress_iter(
         range(1, config.epochs + 1),
         desc=f"{config.model_name} {config.dataset_name} seed={config.seed}",
-        disable=config.disable_tqdm,
+        config=progress_config,
+        position=1,
+        leave=progress_config.leave_epoch,
     )
     for epoch in epoch_iter:
         train_loss = train_one_epoch(
@@ -629,11 +665,11 @@ def run_baseline_experiment(config: BaselineRunConfig) -> dict[str, Any]:
             config.batch_size,
             device,
             seed=config.seed + epoch,
-            disable_tqdm=config.disable_tqdm,
+            progress=progress_config,
             desc=f"train epoch {epoch}/{config.epochs}",
             use_sample_weight=config.use_sample_weight,
         )
-        valid_metrics, _ = evaluate_model(model, validation_samples, config.batch_size, device, disable_tqdm=config.disable_tqdm, desc="valid")
+        valid_metrics, _ = evaluate_model(model, validation_samples, config.batch_size, device, progress=progress_config, desc="valid")
         current_metric = metric_from_validation(valid_metrics, config.early_stop_metric)
         status = stopper.step(current_metric, epoch, active=early_stopping_active)
         if status["is_best"]:
@@ -659,13 +695,14 @@ def run_baseline_experiment(config: BaselineRunConfig) -> dict[str, Any]:
             **status,
         }
         training_log.append(log_row)
-        if hasattr(epoch_iter, "set_postfix"):
-            epoch_iter.set_postfix(
-                loss=f"{train_loss:.4f}",
-                metric=current_metric,
-                best=stopper.best_metric,
-                patience=stopper.counter,
-            )
+        set_progress_postfix(
+            epoch_iter,
+            epoch=epoch,
+            train_loss=f"{train_loss:.4f}",
+            val_macro_f1=valid_metrics.get("macro_f1"),
+            best_val_macro_f1=stopper.best_metric,
+            best_epoch=stopper.best_epoch,
+        )
         if status["stopped_early"]:
             break
 
@@ -698,7 +735,7 @@ def run_baseline_experiment(config: BaselineRunConfig) -> dict[str, Any]:
     if training_log:
         training_log[-1]["stopped_early"] = bool(stopper.stopped_early)
     save_training_log(output_dir, training_log)
-    test_metrics, predictions = evaluate_model(model, materialized.get("test", []), config.batch_size, device, disable_tqdm=config.disable_tqdm, desc="test")
+    test_metrics, predictions = evaluate_model(model, materialized.get("test", []), config.batch_size, device, progress=progress_config, desc="test")
     save_baseline_outputs(config, model, predictions, test_metrics)
     backbone_state = collect_backbone_state(model)
     manifest = build_run_manifest(
@@ -727,10 +764,12 @@ def run_baseline_experiment(config: BaselineRunConfig) -> dict[str, Any]:
         },
     )
     write_run_manifest(Path(config.output_root) / "predictions" / config.dataset_name / config.model_name / str(config.seed), manifest)
-    print(
+    progress_write(
         f"[early-stopping] {config.dataset_name}/{config.model_name}/seed={config.seed}: "
         f"best_epoch={stopper.best_epoch} best_{config.early_stop_metric}={stopper.best_metric} "
         f"stopped_early={stopper.stopped_early} checkpoint={best_checkpoint_path if config.save_best else 'disabled'}"
+        ,
+        config=progress_config,
     )
     return test_metrics
 
@@ -804,6 +843,7 @@ def train_one_epoch(
     device: torch.device,
     seed: int,
     disable_tqdm: bool = False,
+    progress: ProgressConfig | None = None,
     desc: str = "train",
     use_sample_weight: bool = False,
 ) -> float:
@@ -815,9 +855,17 @@ def train_one_epoch(
     shuffled = list(samples)
     rng.shuffle(shuffled)
     model.train()
-    losses: list[float] = []
+    loss_sum = 0.0
+    loss_count = 0
     batches = list(_batches(shuffled, batch_size))
-    batch_iter = progress_iter(batches, desc=desc, disable=disable_tqdm, leave=False)
+    progress_config = progress or ProgressConfig(disable=True if disable_tqdm else None)
+    batch_iter = progress_iter(
+        batches,
+        desc=desc,
+        config=progress_config,
+        position=2,
+        leave=progress_config.leave_batch,
+    )
     for batch in batch_iter:
         labels = torch.tensor([int(sample["label"]) for sample in batch], dtype=torch.long, device=device)
         output = model(
@@ -833,10 +881,16 @@ def train_one_epoch(
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        losses.append(float(loss.detach().cpu()))
-        if hasattr(batch_iter, "set_postfix"):
-            batch_iter.set_postfix(loss=f"{losses[-1]:.4f}")
-    return sum(losses) / max(1, len(losses))
+        current_loss = float(loss.detach().cpu())
+        loss_sum += current_loss
+        loss_count += 1
+        set_progress_postfix(
+            batch_iter,
+            loss=f"{current_loss:.4f}",
+            running_loss=f"{loss_sum / max(1, loss_count):.4f}",
+            learning_rate=f"{optimizer.param_groups[0].get('lr', 0.0):.2e}",
+        )
+    return loss_sum / max(1, loss_count)
 
 
 @torch.no_grad()
@@ -846,6 +900,7 @@ def evaluate_model(
     batch_size: int,
     device: torch.device,
     disable_tqdm: bool = False,
+    progress: ProgressConfig | None = None,
     desc: str = "eval",
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Evaluate a baseline and return metrics plus prediction records."""
@@ -855,7 +910,14 @@ def evaluate_model(
     model.eval()
     predictions: list[dict[str, Any]] = []
     batches = list(_batches(samples, batch_size))
-    for batch in progress_iter(batches, desc=desc, disable=disable_tqdm, leave=False):
+    progress_config = progress or ProgressConfig(disable=True if disable_tqdm else None)
+    for batch in progress_iter(
+        batches,
+        desc=desc,
+        config=progress_config,
+        position=2,
+        leave=progress_config.leave_batch,
+    ):
         output = model(
             image_paths=[sample.get("image_path") for sample in batch],
             ocr_texts=[sample.get("ocr_text_full", "") for sample in batch],
@@ -1035,6 +1097,10 @@ def _normalized_baseline_harmfulness_label(sample: dict[str, Any]) -> int | None
 def _batches(samples: list[dict[str, Any]], batch_size: int):
     for start in range(0, len(samples), max(1, batch_size)):
         yield samples[start : start + max(1, batch_size)]
+
+
+def _progress_config(config: OursRunConfig | BaselineRunConfig) -> ProgressConfig:
+    return config.progress or ProgressConfig(disable=True if config.disable_tqdm else None)
 
 
 

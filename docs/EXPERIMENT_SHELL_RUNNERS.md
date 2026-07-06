@@ -62,3 +62,12 @@ Model weights under `assets/pretrained/` must not be committed. Track only `.git
 Strict vision verification checks that the local checkpoint is compatible with the configured OpenCLIP architecture. File existence and SHA-256 alone are not enough; random initialization, broad missing keys, shape mismatches, and fallback embeddings are never paper-valid pretrained states.
 
 Formal `tactic_rhetorical` metrics are computed from trainable tactic logits only. The validation split selects a sigmoid threshold once, the fixed threshold is applied to the test split, and rendered top-1/heuristic tactic labels remain explanation-only legacy diagnostics.
+# Update: Unified CLI
+
+Shell presets now route Python work through `python scripts/run.py ...`. The grouped replacements are:
+
+- `data dataset-stats`, `data make-splits`
+- `report aggregate`, `report aggregate-structured`, `report export-paper-tables`
+- `analysis knowledge-comparison`, `analysis runtime`, `analysis verifier`, `analysis cross-domain`, `analysis subset`, `analysis rationale`, `analysis significance`
+
+Progress bars use the shared options `--disable-tqdm`, `--tqdm-mininterval`, and `--tqdm-leave`. See `docs/CODE_ORGANIZATION.md` for the full old-to-new command table.

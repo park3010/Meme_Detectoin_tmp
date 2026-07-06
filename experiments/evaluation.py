@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from experiments.prediction_io import load_prediction_records
-from experiments.progress import progress_iter
+from experiments.progress import ProgressConfig, progress_iter
 from experiments.tactic_decoding import (
     TacticDecodingSpec,
     compute_tactic_logits_only_metrics,
@@ -181,6 +181,7 @@ def evaluate_structured_predictions(
     records: list[dict[str, Any]],
     evidence_k: int = 3,
     disable_tqdm: bool = False,
+    progress: ProgressConfig | None = None,
 ) -> dict[str, Any]:
     """Evaluate harmfulness, target, intent, tactic, and weak evidence matching."""
 
@@ -253,7 +254,7 @@ def evaluate_structured_predictions(
         [record.get("gold_tactic", {}).get("tactic_multimodal_relation") for record in records],
         [record.get("tactic", {}).get("multimodal_relation") for record in records],
     )
-    evidence_scores = weak_evidence_scores(records, k=evidence_k, disable_tqdm=disable_tqdm)
+    evidence_scores = weak_evidence_scores(records, k=evidence_k, disable_tqdm=disable_tqdm, progress=progress)
     metrics.update(evidence_scores)
     return metrics
 
@@ -393,11 +394,12 @@ def evaluate_prediction_file(
     dataset: str,
     output_root: str | Path = "result/metrics",
     disable_tqdm: bool = False,
+    progress: ProgressConfig | None = None,
 ) -> dict[str, Any]:
     """Evaluate one prediction file and save per-dataset JSON."""
 
     records = load_prediction_records(prediction_path)
-    metrics = evaluate_structured_predictions(records, disable_tqdm=disable_tqdm)
+    metrics = evaluate_structured_predictions(records, disable_tqdm=disable_tqdm, progress=progress)
     output_dir = Path(output_root)
     output_dir.mkdir(parents=True, exist_ok=True)
     write_json(output_dir / f"structured_interpretation_{dataset}.json", metrics)
@@ -421,14 +423,17 @@ def write_structured_csv(rows: list[dict[str, Any]], output_path: str | Path = "
 def collect_structured_metric_rows(
     predictions_root: str | Path = "result/predictions",
     disable_tqdm: bool = False,
+    progress: ProgressConfig | None = None,
 ) -> list[dict[str, Any]]:
     """Scan prediction files and evaluate structured outputs for each run."""
 
     rows: list[dict[str, Any]] = []
     root = Path(predictions_root)
-    for path in sorted(root.glob("*/*/*/final_predictions.jsonl")):
+    paths = sorted(root.glob("*/*/*/final_predictions.jsonl"))
+    progress_config = progress or ProgressConfig(disable=True if disable_tqdm else None)
+    for path in progress_iter(paths, desc="structured runs", config=progress_config, leave=progress_config.leave_batch):
         dataset, model, seed = path.parts[-4], path.parts[-3], path.parts[-2]
-        metrics = evaluate_structured_predictions(load_prediction_records(path), disable_tqdm=disable_tqdm)
+        metrics = evaluate_structured_predictions(load_prediction_records(path), disable_tqdm=disable_tqdm, progress=progress_config)
         rows.append({"dataset": dataset, "model": model, "seed": seed, **metrics})
     return rows
 
@@ -437,10 +442,11 @@ def write_structured_aggregate_tables(
     predictions_root: str | Path = "result/predictions",
     output_root: str | Path = "result/metrics",
     disable_tqdm: bool = False,
+    progress: ProgressConfig | None = None,
 ) -> tuple[Path, Path]:
     """Write per-run and mean/std structured interpretation metric tables."""
 
-    rows = collect_structured_metric_rows(predictions_root, disable_tqdm=disable_tqdm)
+    rows = collect_structured_metric_rows(predictions_root, disable_tqdm=disable_tqdm, progress=progress)
     output_dir = Path(output_root)
     output_dir.mkdir(parents=True, exist_ok=True)
     per_run = write_structured_csv(rows, output_dir / "structured_interpretation.csv")
@@ -502,11 +508,19 @@ def weak_evidence_scores(
     records: list[dict[str, Any]],
     k: int = 3,
     disable_tqdm: bool = False,
+    progress: ProgressConfig | None = None,
 ) -> dict[str, float | None]:
     hits = 0
     precision_sum = 0.0
     total = 0
-    for record in progress_iter(records, desc="structured evidence", leave=False, disable=disable_tqdm):
+    progress_config = progress or ProgressConfig(disable=True if disable_tqdm else None)
+    for record in progress_iter(
+        records,
+        desc="structured evidence",
+        config=progress_config,
+        position=2,
+        leave=progress_config.leave_batch,
+    ):
         gold_texts = [text for text in as_list(record.get("gold_evidence_text")) if str(text).strip()]
         if not gold_texts:
             continue

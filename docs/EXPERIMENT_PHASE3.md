@@ -5,18 +5,18 @@ This phase adds analysis scripts for robustness, verifier behavior, difficult su
 ## Scripts
 
 ```bash
-python scripts/run_cross_domain.py --setting mixed_train --model ours_full --seed 42
-python scripts/run_cross_domain.py --setting leave_one_domain_out --heldout harm_c --model ours_full --seed 42
-python scripts/run_cross_domain.py --setting train_one_test_others --train-dataset facebook --model ours_full --seed 42
+python scripts/run.py analysis cross-domain --setting mixed_train --model ours_full --seed 42
+python scripts/run.py analysis cross-domain --setting leave_one_domain_out --heldout harm_c --model ours_full --seed 42
+python scripts/run.py analysis cross-domain --setting train_one_test_others --train-dataset facebook --model ours_full --seed 42
 
-python scripts/run_verifier_eval.py --dataset harm_c --seed 42
-python scripts/run_subset_analysis.py --dataset all --model ours_full --seed 42
-python scripts/select_error_cases.py --dataset all --model ours_full --seed 42
-python scripts/export_case_visualization_data.py --dataset all --model ours_full --seed 42
-python scripts/run_rationale_eval.py --dataset all --model ours_full --seed 42
-python scripts/run_runtime_cost.py --dataset harm_c --limit 200
-python scripts/run_significance_tests.py
-python scripts/export_paper_tables.py
+python scripts/run.py analysis verifier --dataset harm_c --seed 42
+python scripts/run.py analysis subset --dataset all --model ours_full --seed 42
+python scripts/run.py analysis select-error-cases --dataset all --model ours_full --seed 42
+python scripts/run.py report export-case-data --dataset all --model ours_full --seed 42
+python scripts/run.py analysis rationale --dataset all --model ours_full --seed 42
+python scripts/run.py analysis runtime --dataset harm_c --limit 200
+python scripts/run.py analysis significance
+python scripts/run.py report export-paper-tables
 ```
 
 ## Outputs

@@ -43,10 +43,10 @@ run_with_optional_limit() {
 }
 
 log_section "Smoke: dataset statistics"
-run_cmd "${PYTHON}" scripts/run_dataset_stats.py --config "${CONFIG}" --dataset all --output-root "${OUTPUT_ROOT}/dataset_stats"
+run_cmd "${PYTHON}" scripts/run.py data dataset-stats --config "${CONFIG}" --dataset all --output-root "${OUTPUT_ROOT}/dataset_stats"
 
 log_section "Smoke: split generation seed 42"
-run_with_optional_limit "${PYTHON}" scripts/make_splits.py --config "${CONFIG}" --dataset all --seed 42 --output-root "${OUTPUT_ROOT}/splits"
+run_with_optional_limit "${PYTHON}" scripts/run.py data make-splits --config "${CONFIG}" --dataset all --seed 42 --output-root "${OUTPUT_ROOT}/splits"
 
 log_section "Smoke: text-only baseline on harm_c"
 run_with_optional_limit "${PYTHON}" scripts/run.py baseline --baseline text_only_encoder \
@@ -79,11 +79,11 @@ run_with_optional_limit "${PYTHON}" scripts/run.py train \
   --disable-tqdm
 
 log_section "Smoke: one knowledge comparison"
-run_with_optional_limit "${PYTHON}" scripts/run_knowledge_comparison.py \
+run_with_optional_limit "${PYTHON}" scripts/run.py analysis knowledge-comparison \
   --config "${CONFIG}" --dataset harm_c --seed 42 --mode verified --device "${DEVICE}" --output-root "${OUTPUT_ROOT}"
 
 log_section "Smoke: runtime/cost"
-run_cmd "${PYTHON}" scripts/run_runtime_cost.py \
+run_cmd "${PYTHON}" scripts/run.py analysis runtime \
   --config "${CONFIG}" --dataset harm_c --limit "${RUNTIME_LIMIT}" --device "${DEVICE}" --warmup 0 --output-root "${OUTPUT_ROOT}"
 
 log_section "Smoke experiments complete"

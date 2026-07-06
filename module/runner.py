@@ -9,6 +9,7 @@ import torch
 from torch import nn
 
 from dataset import MemeDataset
+from experiments.progress import ProgressConfig, progress_iter
 from module.evidence_fusion_reasoning import EvidenceFusionReasoning
 from module.external_knowledge_acquisition import ExternalKnowledgeAcquisition, QueryBundle, StageBMetadata, StageBOutput
 from module.internal_evidence_extractor import InternalEvidenceExtractor
@@ -327,7 +328,12 @@ logger = setup_logger(__name__)
 class PipelineRunner:
     """Load config/data, execute stages, and save outputs."""
 
-    def __init__(self, config_path: str | Path = "configs/config.yaml", overrides: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        config_path: str | Path = "configs/config.yaml",
+        overrides: dict[str, Any] | None = None,
+        progress: ProgressConfig | None = None,
+    ) -> None:
         self.config_path = Path(config_path)
         self.config = load_yaml(self.config_path)
         if overrides:
@@ -335,6 +341,7 @@ class PipelineRunner:
         set_seed(int(self.config.get("runtime", {}).get("seed", 13)))
         self.pipeline = HarmfulMemePipeline(self.config).eval()
         self.result_root = Path(self.config.get("paths", {}).get("result_root", "result"))
+        self.progress = progress or ProgressConfig(disable=None)
 
     def load_dataset(self, dataset_names: list[str] | None = None, limit: int | None = None) -> MemeDataset:
         """Load configured dataset."""
@@ -362,7 +369,14 @@ class PipelineRunner:
         dataset = self.load_dataset(dataset_names=dataset_names, limit=limit)
         logger.info("Running pipeline on %s samples through Stage %s", len(dataset), run_until.upper())
         records: list[dict[str, Any]] = []
-        for sample in dataset:
+        for sample in progress_iter(
+            dataset,
+            desc=f"stage {run_until}",
+            config=self.progress,
+            position=2,
+            leave=self.progress.leave_batch,
+            total=len(dataset),
+        ):
             outputs = self.pipeline(sample, run_until=run_until)
             records.append({"sample": sample, "outputs": outputs})
         if save:

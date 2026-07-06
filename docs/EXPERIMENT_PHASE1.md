@@ -18,7 +18,7 @@ five-stage interpretation framework.
 ## Table 1: Dataset Statistics
 
 ```bash
-python scripts/run_dataset_stats.py --dataset all
+python scripts/run.py data dataset-stats --dataset all
 ```
 
 Outputs:
@@ -34,8 +34,8 @@ Official `txt/train.jsonl`, `txt/val.jsonl`, and `txt/test.jsonl` files are used
 when available. Otherwise deterministic stratified splits are generated.
 
 ```bash
-python scripts/make_splits.py --dataset all --seed 42
-python scripts/make_splits.py --dataset all --all-seeds
+python scripts/run.py data make-splits --dataset all --seed 42
+python scripts/run.py data make-splits --dataset all --all-seeds
 ```
 
 Outputs:
@@ -70,7 +70,7 @@ result/predictions/{dataset}/{model}/{seed}/best_model.pt
 ## Aggregate Metrics
 
 ```bash
-python scripts/aggregate_results.py
+python scripts/run.py report aggregate
 ```
 
 Outputs:

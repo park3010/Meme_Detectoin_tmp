@@ -11,7 +11,7 @@ import torch
 
 from dataset import MemeDataset
 from experiments.evaluation import compute_harmfulness_metrics
-from experiments.progress import progress_iter
+from experiments.progress import ProgressConfig, progress_iter
 from experiments.splits import label_to_int
 from module.losses import extract_supervision_from_annotation
 from module.runner import HarmfulMemePipeline
@@ -26,6 +26,7 @@ def run_verifier_evaluation(
     output_root: str = "result",
     limit: int | None = None,
     disable_tqdm: bool = False,
+    progress: ProgressConfig | None = None,
 ) -> dict[str, Any]:
     """Run Stage A-B-C and evaluate verifier decisions with weak labels."""
 
@@ -40,8 +41,16 @@ def run_verifier_evaluation(
     )
     pipeline = HarmfulMemePipeline(cfg).eval()
     examples: list[dict[str, Any]] = []
+    progress_config = progress or ProgressConfig(disable=True if disable_tqdm else None)
     with torch.no_grad():
-        for sample in progress_iter(dataset, desc=f"verifier {dataset_name}", leave=False, disable=disable_tqdm):
+        for sample in progress_iter(
+            dataset,
+            desc=f"verifier {dataset_name}",
+            config=progress_config,
+            position=2,
+            leave=progress_config.leave_batch,
+            total=len(dataset),
+        ):
             if label_to_int(sample.get("raw_label")) is None:
                 continue
             stage_a = pipeline.stage_a(sample)

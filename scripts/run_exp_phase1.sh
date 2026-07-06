@@ -45,10 +45,10 @@ run_with_optional_limit() {
 }
 
 log_section "Phase 1: dataset statistics"
-run_cmd "${PYTHON}" scripts/run_dataset_stats.py --config "${CONFIG}" --dataset all --output-root "${OUTPUT_ROOT}/dataset_stats"
+run_cmd "${PYTHON}" scripts/run.py data dataset-stats --config "${CONFIG}" --dataset all --output-root "${OUTPUT_ROOT}/dataset_stats"
 
 log_section "Phase 1: split generation for all paper seeds"
-run_with_optional_limit "${PYTHON}" scripts/make_splits.py \
+run_with_optional_limit "${PYTHON}" scripts/run.py data make-splits \
   --config "${CONFIG}" --dataset all --all-seeds --output-root "${OUTPUT_ROOT}/splits"
 
 if [[ "${RUN_BASELINES}" == "1" ]]; then
@@ -81,6 +81,6 @@ else
 fi
 
 log_section "Phase 1: aggregate main metrics"
-run_cmd "${PYTHON}" scripts/aggregate_results.py --predictions-root "${OUTPUT_ROOT}/predictions" --output-root "${OUTPUT_ROOT}/metrics"
+run_cmd "${PYTHON}" scripts/run.py report aggregate --predictions-root "${OUTPUT_ROOT}/predictions" --output-root "${OUTPUT_ROOT}/metrics"
 
 log_section "Experiment Phase 1 complete"

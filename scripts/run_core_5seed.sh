@@ -42,8 +42,8 @@ log_section "Core 5-seed: Phase 2 ours/key ablations/key knowledge"
 bash scripts/run_exp_phase2.sh
 
 log_section "Core 5-seed: significance and paper tables"
-run_cmd "${PYTHON}" scripts/run_significance_tests.py \
+run_cmd "${PYTHON}" scripts/run.py analysis significance \
   --result-root "${OUTPUT_ROOT}" --output "${OUTPUT_ROOT}/metrics/significance_tests.csv"
-run_cmd "${PYTHON}" scripts/export_paper_tables.py --result-root "${OUTPUT_ROOT}"
+run_cmd "${PYTHON}" scripts/run.py report export-paper-tables --result-root "${OUTPUT_ROOT}"
 
 log_section "Core 5-seed complete"

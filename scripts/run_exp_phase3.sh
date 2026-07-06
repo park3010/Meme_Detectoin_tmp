@@ -45,13 +45,13 @@ run_with_optional_limit() {
 if [[ "${RUN_CROSS_DOMAIN}" == "1" ]]; then
   for seed in "${SEED_ARRAY[@]}"; do
     log_section "Phase 3: cross-domain mixed_train seed=${seed}"
-    run_with_optional_limit "${PYTHON}" scripts/run_cross_domain.py \
+    run_with_optional_limit "${PYTHON}" scripts/run.py analysis cross-domain \
       --config "${CONFIG}" --setting mixed_train --model ours_full --seed "${seed}" \
       --epochs "${EPOCHS}" --lr "${LR}" --device "${DEVICE}" --output-root "${OUTPUT_ROOT}"
 
     for dataset in "${DATASET_ARRAY[@]}"; do
       log_section "Phase 3: leave-one-domain-out heldout=${dataset} seed=${seed}"
-      run_with_optional_limit "${PYTHON}" scripts/run_cross_domain.py \
+      run_with_optional_limit "${PYTHON}" scripts/run.py analysis cross-domain \
         --config "${CONFIG}" --setting leave_one_domain_out --heldout "${dataset}" \
         --model ours_full --seed "${seed}" --epochs "${EPOCHS}" --lr "${LR}" \
         --device "${DEVICE}" --output-root "${OUTPUT_ROOT}"
@@ -63,36 +63,36 @@ fi
 
 for dataset in "${DATASET_ARRAY[@]}"; do
   log_section "Phase 3: verifier evaluation dataset=${dataset}"
-  run_with_optional_limit "${PYTHON}" scripts/run_verifier_eval.py \
+  run_with_optional_limit "${PYTHON}" scripts/run.py analysis verifier \
     --config "${CONFIG}" --dataset "${dataset}" --seed "${ANALYSIS_SEED}" --output-root "${OUTPUT_ROOT}"
 
   log_section "Phase 3: runtime/cost dataset=${dataset}"
-  run_cmd "${PYTHON}" scripts/run_runtime_cost.py \
+  run_cmd "${PYTHON}" scripts/run.py analysis runtime \
     --config "${CONFIG}" --dataset "${dataset}" --limit "${RUNTIME_LIMIT}" \
     --device "${DEVICE}" --output-root "${OUTPUT_ROOT}"
 done
 
 log_section "Phase 3: difficult subset analysis"
-run_cmd "${PYTHON}" scripts/run_subset_analysis.py \
+run_cmd "${PYTHON}" scripts/run.py analysis subset \
   --dataset all --model ours_full --seed "${ANALYSIS_SEED}" --result-root "${OUTPUT_ROOT}"
 
 log_section "Phase 3: error case selection"
-run_cmd "${PYTHON}" scripts/select_error_cases.py \
+run_cmd "${PYTHON}" scripts/run.py analysis select-error-cases \
   --dataset all --model ours_full --seed "${ANALYSIS_SEED}" --result-root "${OUTPUT_ROOT}"
 
 log_section "Phase 3: case visualization export"
-run_cmd "${PYTHON}" scripts/export_case_visualization_data.py \
+run_cmd "${PYTHON}" scripts/run.py report export-case-data \
   --dataset all --model ours_full --seed "${ANALYSIS_SEED}" --result-root "${OUTPUT_ROOT}"
 
 log_section "Phase 3: rationale evaluation"
-run_cmd "${PYTHON}" scripts/run_rationale_eval.py \
+run_cmd "${PYTHON}" scripts/run.py analysis rationale \
   --dataset all --model ours_full --seed "${ANALYSIS_SEED}" --result-root "${OUTPUT_ROOT}"
 
 log_section "Phase 3: significance tests"
-run_cmd "${PYTHON}" scripts/run_significance_tests.py \
+run_cmd "${PYTHON}" scripts/run.py analysis significance \
   --result-root "${OUTPUT_ROOT}" --output "${OUTPUT_ROOT}/metrics/significance_tests.csv"
 
 log_section "Phase 3: paper table export"
-run_cmd "${PYTHON}" scripts/export_paper_tables.py --result-root "${OUTPUT_ROOT}"
+run_cmd "${PYTHON}" scripts/run.py report export-paper-tables --result-root "${OUTPUT_ROOT}"
 
 log_section "Experiment Phase 3 complete"

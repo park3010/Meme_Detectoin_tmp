@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from experiments.prediction_io import load_prediction_records
-from experiments.progress import progress_iter
+from experiments.progress import ProgressConfig, progress_iter
 from utils.io import write_json, write_jsonl
 
 
@@ -20,15 +20,23 @@ def select_error_cases(
     result_root: str = "result",
     output_root: str | None = None,
     disable_tqdm: bool = False,
+    progress: ProgressConfig | None = None,
 ) -> list[dict[str, Any]]:
     """Select representative TP/TN/FP/FN cases from saved predictions."""
 
     records = _load_records(dataset, model, seed, result_root)
     selected: list[dict[str, Any]] = []
+    progress_config = progress or ProgressConfig(disable=True if disable_tqdm else None)
     for category, count in CASE_TARGETS.items():
         cases = [
             case_record(record, category)
-            for record in progress_iter(records, desc=f"select {category}", leave=False, disable=disable_tqdm)
+            for record in progress_iter(
+                records,
+                desc=f"select {category}",
+                config=progress_config,
+                position=2,
+                leave=progress_config.leave_batch,
+            )
             if _case_category(record) == category
         ]
         selected.extend(cases[:count])
@@ -46,6 +54,7 @@ def export_case_visualization_data(
     seed: int = 42,
     result_root: str = "result",
     disable_tqdm: bool = False,
+    progress: ProgressConfig | None = None,
 ) -> Path:
     """Export all selected case data needed by downstream visualization scripts."""
 
@@ -55,6 +64,7 @@ def export_case_visualization_data(
         seed=seed,
         result_root=result_root,
         disable_tqdm=disable_tqdm,
+        progress=progress,
     )
     path = Path(result_root) / "analysis" / "error_cases" / "case_visualization_data.jsonl"
     write_jsonl(path, cases, compact_tensors=True)

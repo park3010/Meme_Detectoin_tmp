@@ -11,7 +11,7 @@ from typing import Any
 import torch
 
 from dataset import MemeDataset
-from experiments.progress import progress_iter
+from experiments.progress import ProgressConfig, progress_iter
 from module.runner import HarmfulMemePipeline
 from utils.io import load_yaml, write_json
 
@@ -27,6 +27,7 @@ def run_runtime_cost_analysis(
     config_path: str = "configs/config.yaml",
     output_root: str = "result",
     disable_tqdm: bool = False,
+    progress: ProgressConfig | None = None,
     print_components: bool = False,
 ) -> dict[str, Any]:
     """Profile stage latency and lightweight resource statistics."""
@@ -46,11 +47,24 @@ def run_runtime_cost_analysis(
         from experiments.components import print_pipeline_components
 
         print_pipeline_components(pipeline)
-    for sample in progress_iter(samples[:warmup], desc="runtime warmup", disable=disable_tqdm, leave=False):
+    progress_config = progress or ProgressConfig(disable=True if disable_tqdm else None)
+    for sample in progress_iter(
+        samples[:warmup],
+        desc="runtime warmup",
+        config=progress_config,
+        position=2,
+        leave=progress_config.leave_batch,
+    ):
         _profile_sample(pipeline, sample)
     details = [
         _profile_sample(pipeline, sample)
-        for sample in progress_iter(samples, desc="runtime measured", disable=disable_tqdm, leave=False)
+        for sample in progress_iter(
+            samples,
+            desc="runtime measured",
+            config=progress_config,
+            position=2,
+            leave=progress_config.leave_batch,
+        )
     ]
     summary = summarize_runtime(details, pipeline, cfg)
     summary["dataset"] = dataset

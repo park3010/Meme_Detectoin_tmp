@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from experiments.prediction_io import load_prediction_records
-from experiments.progress import progress_iter
+from experiments.progress import ProgressConfig, progress_iter
 from utils.text_utils import jaccard_similarity, normalize_text
 
 
@@ -35,13 +35,21 @@ def run_rationale_evaluation(
     seed: int = 42,
     result_root: str = "result",
     disable_tqdm: bool = False,
+    progress: ProgressConfig | None = None,
 ) -> list[dict[str, Any]]:
     """Evaluate rationale quality proxies and export a human-rating template."""
 
     records = _load_records(dataset, model, seed, result_root)
+    progress_config = progress or ProgressConfig(disable=True if disable_tqdm else None)
     rows = [
         rationale_metrics(record) | {"dataset": record.get("dataset_name"), "model": model, "seed": seed}
-        for record in progress_iter(records, desc="rationale eval", leave=False, disable=disable_tqdm)
+        for record in progress_iter(
+            records,
+            desc="rationale eval",
+            config=progress_config,
+            position=2,
+            leave=progress_config.leave_batch,
+        )
     ]
     metrics_path = Path(result_root) / "metrics" / "rationale_eval.csv"
     _write_csv(metrics_path, rows)

@@ -15,16 +15,16 @@ This phase adds paper-facing experiment wrappers around the existing 5-stage har
 
 ```bash
 python scripts/run.py train --experiment ours_full --dataset harm_c --seed 42 --epochs 5
-python scripts/evaluate_structured_outputs.py --dataset harm_c --model ours_full --seed 42
+python scripts/run.py report evaluate-structured --dataset harm_c --model ours_full --seed 42
 
 python scripts/run.py ablation --dataset harm_c --ablation w_o_roi --seed 42
 python scripts/run.py ablation --dataset harm_c --ablation w_o_support_verifier --seed 42
 python scripts/run.py ablation --dataset harm_c --fusion-mode task_aware_gate_verified --seed 42
 
-python scripts/run_knowledge_comparison.py --dataset harm_c --mode no_knowledge --seed 42
-python scripts/run_knowledge_comparison.py --dataset harm_c --mode verified --seed 42
+python scripts/run.py analysis knowledge-comparison --dataset harm_c --mode no_knowledge --seed 42
+python scripts/run.py analysis knowledge-comparison --dataset harm_c --mode verified --seed 42
 
-python scripts/aggregate_structured_results.py
+python scripts/run.py report aggregate-structured
 ```
 
 ## Supported Modes

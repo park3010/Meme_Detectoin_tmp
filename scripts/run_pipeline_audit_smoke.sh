@@ -44,7 +44,7 @@ run_cmd "${PYTHON}" scripts/run.py train --experiment ours_full \
   --output-root "${OUTPUT_ROOT}"
 
 log_section "Pipeline audit smoke: audit artifacts"
-run_cmd "${PYTHON}" scripts/audit_full_pipeline_artifacts.py \
+run_cmd "${PYTHON}" scripts/run.py audit \
   --run-root "${RUN_ROOT}" \
   --write-report \
   --allow-empty-split \

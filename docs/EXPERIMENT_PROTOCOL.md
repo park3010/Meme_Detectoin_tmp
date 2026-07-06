@@ -286,3 +286,18 @@ python scripts/run.py suite --suite core_1seed --skip-complete
 ```
 
 A run is skipped only when its run manifest, metrics, and predictions exist and the run is considered complete. Full-framework and ablation runs are re-audited before being skipped.
+# CLI Snapshot
+
+Use `python scripts/run.py ...` for new experiment runs. The shell presets call this unified CLI internally, and progress bars are controlled by `--disable-tqdm`, `--tqdm-mininterval`, and `--tqdm-leave`.
+
+Useful grouped commands:
+
+```bash
+python scripts/run.py data dataset-stats --dataset all
+python scripts/run.py data make-splits --dataset all --all-seeds
+python scripts/run.py report aggregate --predictions-root result/predictions
+python scripts/run.py analysis knowledge-comparison --dataset harm_c --mode verified
+python scripts/run.py analysis runtime --dataset harm_c --limit 200
+```
+
+See `docs/CODE_ORGANIZATION.md` for the old-to-new command migration table.

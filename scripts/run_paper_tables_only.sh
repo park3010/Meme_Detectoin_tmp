@@ -23,18 +23,18 @@ run_cmd() {
 }
 
 log_section "Regenerating main performance tables"
-run_cmd "${PYTHON}" scripts/aggregate_results.py \
+run_cmd "${PYTHON}" scripts/run.py report aggregate \
   --predictions-root "${OUTPUT_ROOT}/predictions" --output-root "${OUTPUT_ROOT}/metrics"
 
 log_section "Regenerating structured interpretation tables"
-run_cmd "${PYTHON}" scripts/aggregate_structured_results.py \
+run_cmd "${PYTHON}" scripts/run.py report aggregate-structured \
   --predictions-root "${OUTPUT_ROOT}/predictions" --output-root "${OUTPUT_ROOT}/metrics"
 
 log_section "Regenerating significance tests"
-run_cmd "${PYTHON}" scripts/run_significance_tests.py \
+run_cmd "${PYTHON}" scripts/run.py analysis significance \
   --result-root "${OUTPUT_ROOT}" --output "${OUTPUT_ROOT}/metrics/significance_tests.csv"
 
 log_section "Exporting paper tables"
-run_cmd "${PYTHON}" scripts/export_paper_tables.py --result-root "${OUTPUT_ROOT}"
+run_cmd "${PYTHON}" scripts/run.py report export-paper-tables --result-root "${OUTPUT_ROOT}"
 
 log_section "Paper table refresh complete"
