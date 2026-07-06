@@ -26,10 +26,10 @@ and CLI entry points.
 ## Running
 
 ```bash
-python scripts/inspect_dataset.py --limit 5
+python scripts/run.py data inspect-dataset --limit 5
 python scripts/run.py stage --dataset harm_c --until stage_b --limit 2
 python scripts/run.py stage --dataset harm_c --until stage_e --limit 2
-python scripts/export_intermediate_results.py
+python scripts/run.py report export-intermediate
 ```
 
 ## Current Limits

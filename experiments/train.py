@@ -116,7 +116,7 @@ def run_ours_experiment(config: OursRunConfig) -> dict[str, Any]:
     pipeline = HarmfulMemePipeline(cfg).to(device)
     ablation_runtime = runtime_config_for_ablation(config.ablation_name)
     if config.print_components:
-        from experiments.components import print_pipeline_components
+        from module.runner import print_pipeline_components
 
         print_pipeline_components(pipeline)
     configure_trainable_parameters(pipeline, config)

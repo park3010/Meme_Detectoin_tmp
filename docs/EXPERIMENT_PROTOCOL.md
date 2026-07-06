@@ -155,6 +155,14 @@ python scripts/run.py suite \
   --require-nonempty-metrics
 ```
 
+Equivalent convenience presets live under `scripts/presets/` and call the same suite command:
+
+```bash
+DEVICE=cpu LIMIT=20 bash scripts/presets/run_core_smoke.sh
+DEVICE=cuda EPOCHS=5 bash scripts/presets/run_core_1seed.sh
+DEVICE=cuda bash scripts/presets/run_core_5seed.sh
+```
+
 ## Run Manifests
 
 Every suite full-model, baseline, ablation, fusion, and knowledge-comparison run writes:

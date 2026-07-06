@@ -3,19 +3,17 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-
 from experiments.cross_domain import CrossDomainConfig, run_cross_domain
-from experiments.error_case_analysis import select_error_cases
-from experiments.paper_tables import export_paper_tables
-from experiments.rationale_eval import rationale_metrics, run_rationale_evaluation
+from experiments.posthoc_error_analysis import select_error_cases
+from experiments.reporting import export_paper_tables
+from experiments.posthoc_quality_evaluation import rationale_metrics, run_rationale_evaluation
 from experiments.runtime_cost import run_runtime_cost_analysis
-from experiments.significance import paired_significance_row, run_significance_tests
-from experiments.subset_analysis import assign_subsets, run_subset_analysis
-from experiments.verifier_eval import verifier_metrics
+from experiments.statistics import paired_significance_row, run_significance_tests
+from experiments.posthoc_error_analysis import assign_subsets, run_subset_analysis
+from experiments.posthoc_quality_evaluation import verifier_metrics
 from utils.io import write_json, write_jsonl
 
 

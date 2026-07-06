@@ -5,11 +5,11 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from experiments.aggregate_results import write_aggregate_tables
-from experiments.error_case_analysis import export_case_visualization_data
+from common import print_json
+from experiments.posthoc_error_analysis import export_case_visualization_data
 from experiments.evaluation import evaluate_prediction_file, write_structured_aggregate_tables
-from experiments.paper_tables import export_paper_tables
 from experiments.progress import progress_config_from_flags
+from experiments.reporting import export_intermediate_manifest, export_paper_tables, write_aggregate_tables
 
 
 def add_report_commands(subparsers: argparse._SubParsersAction, _default_config: str) -> None:
@@ -49,6 +49,11 @@ def add_report_commands(subparsers: argparse._SubParsersAction, _default_config:
     cases.add_argument("--result-root", default="result")
     _add_progress_args(cases)
     cases.set_defaults(func=_cmd_export_case_data)
+
+    intermediate = report_subparsers.add_parser("export-intermediate", help="Export a manifest of intermediate result files.")
+    intermediate.add_argument("--result-root", default="result")
+    intermediate.add_argument("--output", default="result/intermediate_manifest.json")
+    intermediate.set_defaults(func=_cmd_export_intermediate)
 
 
 def _cmd_aggregate(args: argparse.Namespace) -> None:
@@ -101,6 +106,10 @@ def _cmd_export_case_data(args: argparse.Namespace) -> None:
         progress=_progress_config(args),
     )
     print(f"Wrote {path}")
+
+
+def _cmd_export_intermediate(args: argparse.Namespace) -> None:
+    print_json(export_intermediate_manifest(args.result_root, args.output))
 
 
 def _add_progress_args(parser: argparse.ArgumentParser) -> None:

@@ -185,7 +185,7 @@ def run_framework_variant(
     test_samples = split_samples(samples, splits).get("test", [])
     pipeline = HarmfulMemePipeline(cfg).to(runtime_device).eval()
     if print_components:
-        from experiments.components import print_pipeline_components
+        from module.runner import print_pipeline_components
 
         print_pipeline_components(pipeline)
     predictions: list[dict[str, Any]] = []

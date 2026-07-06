@@ -4,12 +4,11 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-
 import torch
-
 from dataset import MemeDataset
 from experiments.early_stopping import EarlyStopping, save_checkpoint, structured_validation_score
 from experiments.train import BaselineRunConfig, run_baseline_experiment
+from module.losses import StructuredMemeLoss, is_differentiable_loss, loss_provenance
 
 
 def test_early_stopping_stops_after_patience():
@@ -78,7 +77,7 @@ def test_training_clis_accept_early_stopping_flags():
             "baseline",
             "--help",
         ],
-        cwd=Path(__file__).resolve().parents[1],
+        cwd=Path(__file__).resolve().parents[3],
         text=True,
         capture_output=True,
         check=True,
@@ -94,7 +93,7 @@ def test_training_clis_accept_early_stopping_flags():
             "train",
             "--help",
         ],
-        cwd=Path(__file__).resolve().parents[1],
+        cwd=Path(__file__).resolve().parents[3],
         text=True,
         capture_output=True,
         check=True,
@@ -157,3 +156,44 @@ def _write_tiny_dataset(tmp_path: Path) -> Path:
     )
     _ = MemeDataset(dataset_root=source, annotation_root=tmp_path / "annotation", dataset_names=["harm_c"], keep_missing_images=True)
     return source
+
+
+def test_loss_provenance_mapping():
+    assert loss_provenance("harmfulness") == "logits"
+    assert loss_provenance("target_granularity") == "logits"
+    assert loss_provenance("intent_primary") == "logits"
+    assert loss_provenance("tactic_rhetorical") == "logits_multilabel"
+    assert loss_provenance("target_presence") == "logits_aux_with_proxy_fallback"
+    assert loss_provenance("tactic_multimodal_relation") == "logits_aux_with_proxy_fallback"
+    assert loss_provenance("stance") == "proxy_rule_score"
+    assert loss_provenance("consistency") == "proxy_detached_metadata"
+
+
+def test_differentiability_expectation_uses_provenance_and_tensor_state():
+    logits_loss = torch.tensor(1.0, requires_grad=True)
+    detached_proxy = torch.tensor(0.5)
+
+    assert is_differentiable_loss("harmfulness", logits_loss) is True
+    assert is_differentiable_loss("target_presence", detached_proxy) is False
+    assert is_differentiable_loss("harmfulness", logits_loss.detach()) is False
+
+
+def test_structured_loss_descriptions_are_logging_only():
+    losses = {
+        "harmfulness": torch.tensor(1.0, requires_grad=True),
+        "target_presence": torch.tensor(0.5),
+        "total": torch.tensor(1.5, requires_grad=True),
+    }
+
+    descriptions = StructuredMemeLoss().describe_losses(losses)
+
+    assert descriptions["harmfulness"] == {
+        "value": 1.0,
+        "provenance": "logits",
+        "differentiable_expected": True,
+        "requires_grad": True,
+    }
+    assert descriptions["target_presence"]["provenance"] == "logits_aux_with_proxy_fallback"
+    assert descriptions["target_presence"]["differentiable_expected"] is True
+    assert descriptions["target_presence"]["requires_grad"] is False
+    assert losses["harmfulness"].requires_grad is True

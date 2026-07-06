@@ -44,7 +44,7 @@ def run_runtime_cost_analysis(
     samples = [dict(sample) for sample in meme_dataset]
     pipeline = HarmfulMemePipeline(cfg).eval()
     if print_components:
-        from experiments.components import print_pipeline_components
+        from module.runner import print_pipeline_components
 
         print_pipeline_components(pipeline)
     progress_config = progress or ProgressConfig(disable=True if disable_tqdm else None)

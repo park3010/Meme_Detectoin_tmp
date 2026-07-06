@@ -107,6 +107,14 @@ python scripts/run.py suite --suite core_smoke --config configs/config.yaml --de
 python scripts/run.py suite --suite core_smoke --config configs/config.yaml --device cpu --disable-tqdm --audit-after-run --strict --require-nonempty-metrics
 ```
 
+편의용 shell preset은 `scripts/presets/` 아래에 있습니다. 이 preset들은 모두 내부적으로 `python scripts/run.py ...`를 호출합니다.
+
+```bash
+bash scripts/presets/run_preflight.sh
+DEVICE=cpu LIMIT=20 bash scripts/presets/run_core_smoke.sh
+DEVICE=cuda EPOCHS=5 bash scripts/presets/run_core_1seed.sh
+```
+
 suite 실행은 dataset/seed별 split 파일을 하나로 고정하고, 각 run마다 `run_manifest.json`을 저장합니다.
 
 ```text

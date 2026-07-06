@@ -6,15 +6,15 @@ import argparse
 
 from experiments.ablation_configs import KNOWLEDGE_MODES
 from experiments.cross_domain import CrossDomainConfig, run_cross_domain
-from experiments.error_case_analysis import select_error_cases
+from experiments.posthoc_error_analysis import select_error_cases
 from experiments.knowledge_comparison import run_knowledge_comparison
 from experiments.progress import progress_config_from_flags
-from experiments.rationale_eval import run_rationale_evaluation
+from experiments.posthoc_quality_evaluation import run_rationale_evaluation
 from experiments.runtime_cost import run_runtime_cost_analysis
-from experiments.significance import run_significance_tests
+from experiments.statistics import run_significance_tests
 from experiments.splits import DEFAULT_SEEDS, normalize_dataset_names
-from experiments.subset_analysis import run_subset_analysis
-from experiments.verifier_eval import run_verifier_evaluation
+from experiments.posthoc_error_analysis import run_subset_analysis
+from experiments.posthoc_quality_evaluation import run_verifier_evaluation
 
 
 def add_analysis_commands(subparsers: argparse._SubParsersAction, default_config: str) -> None:

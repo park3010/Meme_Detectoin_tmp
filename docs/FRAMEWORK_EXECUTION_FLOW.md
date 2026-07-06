@@ -1,105 +1,146 @@
 # Framework Execution Flow
 
-## Unified CLI
-
-The primary command surface is now `scripts/run.py`.
+The primary entry point is:
 
 ```bash
-python scripts/run.py train --dataset harm_c --experiment ours_full --config configs/config.yaml --seed 42 --device cpu
-python scripts/run.py baseline --dataset harm_c --baseline text_only_encoder --config configs/config.yaml --seed 42 --device cpu
-python scripts/run.py stage --dataset harm_c --until stage_e --limit 5 --config configs/config.yaml --device cpu
-python scripts/run.py audit --run-root result/predictions/harm_c/ours_full/42 --write-report --strict --require-nonempty-metrics
+python scripts/run.py ...
 ```
 
-## Ours Full Flow
+## Command Adapter Flow
 
 ```text
-scripts/run.py train
-→ experiments/train.py::run_ours_experiment
-→ module/runner.py::HarmfulMemePipeline
-→ module/internal_evidence_extractor.py      # Stage A
-→ module/external_knowledge_acquisition.py   # Stage B
-→ module/knowledge_filter_verifier.py        # Stage C
-→ module/evidence_fusion_reasoning.py        # Stage D
-→ module/structured_interpretation_head.py   # Stage E
-→ module/losses.py
-→ experiments/evaluation.py
-→ experiments/prediction_io.py
+scripts/run.py
+-> scripts/common.py
+-> scripts/commands/experiment.py
+-> scripts/commands/data.py
+-> scripts/commands/report.py
+-> scripts/commands/analysis.py
 ```
 
-## Baseline Flow
+The command files are thin adapters. Implementation logic stays in `experiments/` and `module/`.
+
+## Ours Full
 
 ```text
-scripts/run.py baseline
-→ experiments/train.py::run_baseline_experiment
-→ module/baseline.py
-→ module/backbone/vision.py and/or module/backbone/text.py
-→ experiments/evaluation.py
-```
-
-## Stage-Only Flow
-
-```text
-scripts/run.py stage
-→ module/runner.py::PipelineRunner
-→ module/runner.py::HarmfulMemePipeline
-→ selected Stage A-E endpoint
-→ result/stage_*/ artifacts
-```
-
-## Ablation And Knowledge Flow
-
-```text
-scripts/run.py ablation
-→ experiments/ablation_runner.py
-→ module/runner.py::HarmfulMemePipeline
-→ stage output transformations
-→ result/predictions/{dataset}/ablation_{mode}/{seed}/
-```
-
-Knowledge comparison remains a specialized experiment path because it has its own analysis export:
-
-```text
-scripts/run.py suite --suite knowledge_1seed
-→ experiments/knowledge_comparison.py
-→ experiments/ablation_runner.py::run_framework_variant
-```
-
-## Protocol Suite Flow
-
-```text
-scripts/run.py suite
-→ experiments/experiment_suite.py::resolve_suite_plan
-→ persisted split file: result/splits/{dataset}/seed_{seed}.json
-→ train/evaluate runner for each planned item
-→ run manifest: result/predictions/{dataset}/{run_name}/{seed}/run_manifest.json
-→ optional pipeline audit
-→ suite manifest: result/experiment_suites/{suite_name}/suite_manifest.json
-```
-
-Ablation semantics are declared in `experiments/ablation_configs.py` as `AblationContract` objects. The audit reads the run manifest to distinguish full-model checks from ablation-specific expectations such as `w_o_retrieval` requiring zero verified knowledge or `w_o_structured_auxiliary` requiring exactly four active logits losses.
-
-## Outputs
-
-- Stage artifacts: `result/stage_a/` through `result/stage_e/`
-- Predictions: `result/predictions/{dataset}/{model}/{seed}/final_predictions.jsonl`
-- Metrics: `result/predictions/{dataset}/{model}/{seed}/metrics.json` and `result/metrics/`
-- Audit report: `result/predictions/{dataset}/{model}/{seed}/pipeline_audit_report.md`
-# Unified CLI And Progress
-
-The main experiment entry point is now `python scripts/run.py ...`. Core commands remain `train`, `baseline`, `stage`, `assets`, `evaluate`, `ablation`, `audit`, `suite`, and `preflight`; grouped helpers now live under `data`, `report`, and `analysis`.
-
-Execution for Ours Full remains:
-
-```text
-scripts/run.py train
--> experiments/train.py
--> module/runner.py HarmfulMemePipeline
--> Stage A -> Stage B -> Stage C -> Stage D -> Stage E
+python scripts/run.py train
+-> experiments/train.py::run_ours_experiment
+-> module/runner.py::HarmfulMemePipeline
+-> module/internal_evidence_extractor.py       # Stage A
+-> module/external_knowledge_acquisition.py    # Stage B
+-> module/knowledge_filter_verifier.py         # Stage C
+-> module/evidence_fusion_reasoning.py         # Stage D
+-> module/structured_interpretation_head.py    # Stage E
 -> module/losses.py
--> experiments/evaluation.py / experiments/prediction_io.py
+-> experiments/evaluation.py
+-> experiments/prediction_io.py
 ```
 
-Progress bars are controlled by `experiments/progress.py` and the CLI flags `--disable-tqdm`, `--tqdm-mininterval`, and `--tqdm-leave`. The suite bar uses position 0, epoch bars use position 1, and sample/batch bars use position 2.
+Useful diagnostic:
 
-See `docs/CODE_ORGANIZATION.md` for the current scripts, experiments, and tests layout.
+```bash
+python scripts/run.py train --dataset harm_c --seed 42 --epochs 1 --limit 20 --print-components
+```
+
+`print_pipeline_components()` is implemented in `module/runner.py`.
+
+## Baselines
+
+```text
+python scripts/run.py baseline
+-> experiments/train.py::run_baseline_experiment
+-> module/baseline.py
+-> module/backbone/vision.py and/or module/backbone/text.py
+-> experiments/evaluation.py
+-> experiments/prediction_io.py
+```
+
+## Data Preparation
+
+```text
+python scripts/run.py data dataset-stats
+python scripts/run.py data make-splits
+python scripts/run.py data normalize-labels
+python scripts/run.py data audit-annotations
+python scripts/run.py data inspect-dataset
+python scripts/run.py data inspect-labels
+-> experiments/data_preparation.py
+-> experiments/splits.py
+-> dataset/
+```
+
+The dataset path convention remains unchanged:
+
+```text
+dataset/source
+dataset/annotation
+dataset/annotation_normalized
+```
+
+## Reporting
+
+```text
+python scripts/run.py report aggregate
+python scripts/run.py report aggregate-structured
+python scripts/run.py report evaluate-structured
+python scripts/run.py report export-paper-tables
+python scripts/run.py report export-intermediate
+-> experiments/reporting.py
+-> experiments/evaluation.py
+```
+
+## Analysis
+
+```text
+python scripts/run.py analysis cross-domain
+-> experiments/cross_domain.py
+
+python scripts/run.py analysis verifier
+python scripts/run.py analysis rationale
+-> experiments/posthoc_quality_evaluation.py
+
+python scripts/run.py analysis subset
+python scripts/run.py analysis select-error-cases
+-> experiments/posthoc_error_analysis.py
+
+python scripts/run.py analysis runtime
+-> experiments/runtime_cost.py
+
+python scripts/run.py analysis significance
+-> experiments/statistics.py
+```
+
+## Suites And Presets
+
+```text
+bash scripts/presets/run_core_smoke.sh
+bash scripts/presets/run_core_1seed.sh
+bash scripts/presets/run_core_5seed.sh
+-> python scripts/run.py suite
+-> experiments/experiment_suite.py
+```
+
+Each suite writes:
+
+```text
+result*/experiment_suites/{suite_name}/suite_manifest.json
+result*/predictions/{dataset}/{run_name}/{seed}/run_manifest.json
+```
+
+## Output Locations
+
+- Stage artifacts: `result*/stage_a/` through `result*/stage_e/`
+- Predictions: `result*/predictions/{dataset}/{model}/{seed}/final_predictions.jsonl`
+- Metrics: `result*/predictions/{dataset}/{model}/{seed}/metrics.json` and `result*/metrics/`
+- Analysis: `result*/analysis/`
+- Paper tables: `result*/paper_tables/`
+- Pipeline audit: `result*/predictions/{dataset}/{model}/{seed}/pipeline_audit_report.md`
+
+## Removed Wrapper Replacements
+
+The old standalone wrappers were deleted after their behavior was moved into grouped commands:
+
+- `scripts/build_normalized_labels.py` -> `python scripts/run.py data normalize-labels`
+- `scripts/audit_annotations.py` -> `python scripts/run.py data audit-annotations`
+- `scripts/inspect_dataset.py` -> `python scripts/run.py data inspect-dataset`
+- `scripts/inspect_normalized_labels.py` -> `python scripts/run.py data inspect-labels`
+- `scripts/export_intermediate_results.py` -> `python scripts/run.py report export-intermediate`

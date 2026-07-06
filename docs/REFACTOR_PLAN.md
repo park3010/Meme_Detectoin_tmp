@@ -30,8 +30,9 @@ This refactor reduces implementation fragmentation while preserving model behavi
 
 ## Cleanup Note
 
-The consolidated modules are now active. Removing obsolete duplicate directories/scripts requires explicit deletion approval in this sandbox because the broad cleanup command was blocked by the safety layer.
-# Current Cleanup Snapshot
+The consolidated modules are now active and obsolete duplicate experiment modules, standalone Python wrappers, and old phase shell runners were physically removed.
+
+## Current Cleanup Snapshot
 
 This pass consolidated experiment UX around:
 
