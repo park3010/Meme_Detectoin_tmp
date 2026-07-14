@@ -38,10 +38,22 @@ def stage_outputs_to_prediction_record(
     label_spaces = output_provenance.get("label_spaces", {}) if isinstance(output_provenance, dict) else {}
     tactic_logits = _vector_list(training_hooks.get("tactic_logits"))
     tactic_label_order = [str(label) for label in label_spaces.get("tactic", [])]
+    sample_metadata = sample.get("metadata", {}) if isinstance(sample.get("metadata"), dict) else {}
+    label_masks = (sample.get("targets", {}) or {}).get("masks", {}) if isinstance(sample.get("targets"), dict) else {}
 
     record = {
         "sample_id": sample.get("sample_id"),
         "dataset_name": sample.get("dataset_name"),
+        "sample_key": sample.get("sample_key") or sample_metadata.get("sample_key"),
+        "dataset_family": sample_metadata.get("dataset_family"),
+        "original_dataset": sample_metadata.get("original_dataset") or sample.get("dataset_name"),
+        "domain": sample_metadata.get("domain"),
+        "domain_role": sample_metadata.get("domain_role"),
+        "annotation_provenance": "agent_silver_structured_evaluation"
+        if sample_metadata.get("dataset_family") == "fhm"
+        else "normalized_structured_annotation",
+        "structured_label_eligible": bool(sample.get("structured_label_eligible", True)),
+        "gold_label_masks": label_masks,
         "model_name": model_name,
         "seed": seed,
         "image_path": sample.get("image_path"),

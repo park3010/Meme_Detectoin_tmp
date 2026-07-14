@@ -126,6 +126,116 @@ def audit_run_artifacts(
     return result
 
 
+def audit_baseline_run_artifacts(
+    run_root: str | Path,
+    *,
+    require_nonempty_metrics: bool = True,
+    strict: bool = True,
+    sample_limit: int = 20,
+) -> dict[str, Any]:
+    """Audit the harmfulness-only contract used by simple baselines.
+
+    Baselines do not emit Stage D traces, Stage E provenance, structured fields,
+    or evidence attribution. Applying :func:`audit_run_artifacts` to them would
+    therefore report false contract failures even when their artifacts are
+    correct. This audit intentionally checks only the baseline's declared
+    prediction and protocol surface.
+    """
+
+    root = Path(run_root)
+    paths = discover_artifacts(root)
+    result: dict[str, Any] = {
+        "run_root": str(root),
+        "strict": strict,
+        "audit_contract": "harmfulness_baseline_v1",
+        "artifacts": {name: str(path) if path else None for name, path in paths.items()},
+        "checks": {},
+        "warnings": [],
+        "errors": [],
+    }
+    manifest = _load_manifest(paths["manifest"], result)
+    training_rows = _load_records(paths["training_log"], result, "training log", strict)
+    prediction_rows = _load_records(paths["predictions"], result, "predictions", strict)
+    validation_rows = _load_records(
+        paths["validation_predictions"], result, "validation predictions", strict
+    )
+    metrics_obj = _load_object(paths["metrics"], result, "metrics", strict)
+
+    if manifest.get("run_kind") != "baseline":
+        _issue(result, "Run manifest does not declare run_kind=baseline.", strict=strict, critical=True)
+    for key in (
+        "source_train_manifest_sha256",
+        "source_validation_manifest_sha256",
+        "fhm_test_manifest_sha256",
+    ):
+        if not manifest.get(key):
+            _issue(result, f"Run manifest is missing {key}.", strict=strict, critical=True)
+    if manifest.get("threshold_selection_dataset") != "HarMeme validation":
+        _issue(
+            result,
+            "Baseline selection dataset is not declared as HarMeme validation.",
+            strict=strict,
+            critical=True,
+        )
+    if manifest.get("heldout_test_dataset") != "facebook":
+        _issue(result, "Baseline held-out test dataset is not FHM/facebook.", strict=strict, critical=True)
+
+    required_prediction_keys = {
+        "sample_id",
+        "dataset_name",
+        "gold_label",
+        "pred_label",
+        "prob_harmful",
+        "logits",
+    }
+    failures = []
+    for row in prediction_rows[: max(1, sample_limit)]:
+        missing = sorted(required_prediction_keys - set(row))
+        logits = row.get("logits")
+        if not isinstance(logits, list) or len(logits) != 2:
+            missing.append("logits[length=2]")
+        if row.get("dataset_name") != "facebook":
+            missing.append("dataset_name=facebook")
+        if missing:
+            failures.append({"sample_id": row.get("sample_id"), "missing": sorted(set(missing))})
+    if failures:
+        _issue(
+            result,
+            f"{len(failures)} audited baseline predictions violate the harmfulness contract.",
+            strict=strict,
+            critical=True,
+        )
+
+    metric_values = {
+        key: value
+        for key, value in metrics_obj.items()
+        if _is_metric_key(key) and _number(value) is not None
+    }
+    if require_nonempty_metrics and not metric_values:
+        _issue(result, "Baseline metrics contain no usable values.", strict=strict, critical=True)
+
+    result["manifest"] = manifest
+    result["training_log"] = {"epoch_count": len(training_rows)}
+    result["predictions"] = {
+        "record_count": len(prediction_rows),
+        "audited_count": min(len(prediction_rows), max(1, sample_limit)),
+        "contract_pass_count": min(len(prediction_rows), max(1, sample_limit)) - len(failures),
+        "contract_failures": failures,
+    }
+    result["validation_predictions"] = {"record_count": len(validation_rows)}
+    result["metrics"] = {
+        "metrics_usable": bool(metric_values),
+        "usable_metric_count": len(metric_values),
+        "accuracy": metrics_obj.get("accuracy"),
+        "macro_f1": metrics_obj.get("macro_f1"),
+    }
+    result["passed"] = not result["errors"]
+    result["status"] = (
+        "pass" if result["passed"] and not result["warnings"] else "warning" if result["passed"] else "fail"
+    )
+    return result
+
+
 def discover_artifacts(
     run_root: str | Path,
     *,

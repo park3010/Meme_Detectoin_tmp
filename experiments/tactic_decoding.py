@@ -229,6 +229,7 @@ def compute_tactic_logits_only_metrics(
         return _empty_formal_metrics(spec, threshold, status="no_eligible_samples", diagnostics=diagnostics)
 
     per_label_f1 = []
+    per_label_f1_map: dict[str, float] = {}
     micro_tp = micro_fp = micro_fn = 0
     for label in spec.non_none_labels:
         tp = fp = fn = 0
@@ -239,7 +240,9 @@ def compute_tactic_logits_only_metrics(
         micro_tp += tp
         micro_fp += fp
         micro_fn += fn
-        per_label_f1.append(_f1_counts(tp, fp, fn))
+        label_f1 = _f1_counts(tp, fp, fn)
+        per_label_f1.append(label_f1)
+        per_label_f1_map[label] = label_f1
     none_tp = none_fp = none_fn = 0
     exact = 0
     for gold_set, pred_set in pairs:
@@ -255,6 +258,7 @@ def compute_tactic_logits_only_metrics(
         "tactic_rhetorical_rendered_labels_used": False,
         "tactic_rhetorical_macro_f1_logits_only": sum(per_label_f1) / len(per_label_f1) if per_label_f1 else None,
         "tactic_rhetorical_micro_f1_logits_only": _f1_counts(micro_tp, micro_fp, micro_fn),
+        "tactic_rhetorical_per_label_f1_logits_only": per_label_f1_map,
         "tactic_rhetorical_none_f1": _f1_counts(none_tp, none_fp, none_fn),
         "tactic_rhetorical_exact_match_ratio": exact / len(pairs),
         "tactic_rhetorical_eligible_sample_count": len(pairs),
@@ -272,6 +276,7 @@ def _empty_formal_metrics(spec: TacticDecodingSpec, threshold: float, status: st
         "tactic_rhetorical_rendered_labels_used": False,
         "tactic_rhetorical_macro_f1_logits_only": None,
         "tactic_rhetorical_micro_f1_logits_only": None,
+        "tactic_rhetorical_per_label_f1_logits_only": {},
         "tactic_rhetorical_none_f1": None,
         "tactic_rhetorical_exact_match_ratio": None,
         "tactic_rhetorical_eligible_sample_count": 0,

@@ -293,6 +293,35 @@ class CLIPWrapper(nn.Module):
         return fallback_image_embedding(image_path, dim=self.hidden_dim).to(target_device)
 
     @torch.no_grad()
+    def encode_text(self, text: str) -> torch.Tensor:
+        """Encode text in the same CLIP space used for images.
+
+        Stage A keeps its dedicated text encoder. This additive method exists
+        for the supervised shared-OpenCLIP baseline and retains deterministic
+        offline fallback behavior.
+        """
+
+        target_device = self._target_device()
+        if self.model is not None:
+            try:
+                if self.backend == "open_clip":
+                    import open_clip  # type: ignore
+
+                    tokenizer = open_clip.get_tokenizer(self.model_name)
+                    tokens = tokenizer([text or ""]).to(self.device_name)
+                elif self.backend == "clip":
+                    import clip  # type: ignore
+
+                    tokens = clip.tokenize([text or ""], truncate=True).to(self.device_name)
+                else:
+                    raise RuntimeError(f"unsupported CLIP text backend: {self.backend}")
+                feature = self.model.encode_text(tokens).float().squeeze(0).to(target_device)
+                return self._project_feature(feature)
+            except Exception as exc:
+                logger.warning("CLIP text encoding failed; falling back: %s", exc)
+        return F.normalize(hashed_vector(f"clip-text:{text or ''}", dim=self.hidden_dim), dim=0).to(target_device)
+
+    @torch.no_grad()
     def encode_rois(self, image_path: str | Path | None, boxes: list[tuple[float, float, float, float]]) -> torch.Tensor:
         """Encode ROI boxes; fallback appends box coordinates to the image identity."""
 

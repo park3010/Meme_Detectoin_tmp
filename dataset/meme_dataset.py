@@ -31,6 +31,43 @@ DATASET_ALIASES = {
     "facebook": "facebook",
 }
 
+PAPER_DATASET_PROTOCOL: dict[str, dict[str, Any]] = {
+    "harm_c": {
+        "dataset_family": "harmeme",
+        "paper_name": "HarMeme",
+        "original_dataset": "harm_c",
+        "domain": "covid",
+        "domain_role": "source_train_validation",
+        "enabled_for_paper": True,
+    },
+    "harm_p": {
+        "dataset_family": "harmeme",
+        "paper_name": "HarMeme",
+        "original_dataset": "harm_p",
+        "domain": "politics",
+        "domain_role": "source_train_validation",
+        "enabled_for_paper": True,
+    },
+    "facebook": {
+        "dataset_family": "fhm",
+        "paper_name": "FHM",
+        "original_dataset": "facebook",
+        "domain": "facebook",
+        "domain_role": "heldout_target_test",
+        "annotation_provenance": "agent_silver_structured_evaluation",
+        "enabled_for_paper": True,
+    },
+    "memotion": {
+        "dataset_family": "memotion",
+        "paper_name": "Memotion",
+        "original_dataset": "memotion",
+        "domain": "memotion",
+        "domain_role": "future_dataset",
+        "enabled_for_paper": False,
+        "disabled_reason": "unified harmfulness labels require future re-annotation",
+    },
+}
+
 
 class MemeDataset(BaseMemeDataset):
     """Scan images, OCR JSONL/text files, and optional annotation JSONL files."""
@@ -103,6 +140,7 @@ class MemeDataset(BaseMemeDataset):
                     metadata={
                         "source_folder": source_dir.name,
                         "image_exists": image_path.exists() if image_path else False,
+                        **PAPER_DATASET_PROTOCOL.get(dataset_name, {}),
                     },
                 )
             )

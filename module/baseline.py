@@ -9,6 +9,8 @@ from torch import nn
 
 from module.backbone.text import TextEncoderWrapper
 from module.backbone.vision import CLIPWrapper
+
+
 class MLPClassifierHead(nn.Module):
     """Two-layer MLP classifier used by all harmfulness baselines."""
 
@@ -184,12 +186,59 @@ class CLIPTextConcatClassifier(nn.Module):
         return classifier_output(self.classifier(features))
 
 
+class OpenCLIPMultimodalClassifier(nn.Module):
+    """Classify shared OpenCLIP image/text features and their interactions."""
+
+    model_name = "openclip_classifier"
+
+    def __init__(
+        self,
+        hidden_dim: int = 256,
+        prefer_pretrained_clip: bool = False,
+        clip_model_name: str = "ViT-B-32",
+        device: str = "cpu",
+        clip_pretrained_tag: str | None = None,
+        clip_checkpoint_path: str | None = None,
+        clip_cache_dir: str | None = None,
+        clip_local_files_only: bool = True,
+        clip_allow_download: bool = False,
+        clip_asset_mode: str | None = None,
+    ) -> None:
+        super().__init__()
+        self.hidden_dim = hidden_dim
+        self.encoder = CLIPWrapper(
+            hidden_dim=hidden_dim,
+            prefer_pretrained=prefer_pretrained_clip,
+            model_name=clip_model_name,
+            device=device,
+            pretrained_tag=clip_pretrained_tag,
+            checkpoint_path=clip_checkpoint_path,
+            cache_dir=clip_cache_dir,
+            local_files_only=clip_local_files_only,
+            allow_download=clip_allow_download,
+            asset_mode=clip_asset_mode,
+        )
+        self.classifier = MLPClassifierHead(hidden_dim * 4, hidden_dim=hidden_dim)
+
+    def forward(self, image_paths: list[str | None], ocr_texts: list[str] | None = None) -> dict[str, torch.Tensor]:
+        texts = ocr_texts or ["" for _ in image_paths]
+        image_features = torch.stack([self.encoder.encode_image(path) for path in image_paths], dim=0)
+        text_features = torch.stack([self.encoder.encode_text(text) for text in texts], dim=0)
+        features = torch.cat(
+            [image_features, text_features, image_features * text_features, (image_features - text_features).abs()],
+            dim=-1,
+        )
+        features = features.to(next(self.classifier.parameters()).device)
+        return classifier_output(self.classifier(features))
+
+
 __all__ = [
     "MLPClassifierHead",
     "classifier_output",
     "ImageOnlyCLIPClassifier",
     "TextOnlyEncoderClassifier",
     "CLIPTextConcatClassifier",
+    "OpenCLIPMultimodalClassifier",
 ]
 
 
@@ -197,6 +246,7 @@ BASELINE_REGISTRY = {
     "image_only_clip": ImageOnlyCLIPClassifier,
     "text_only_encoder": TextOnlyEncoderClassifier,
     "clip_text_concat": CLIPTextConcatClassifier,
+    "openclip_classifier": OpenCLIPMultimodalClassifier,
 }
 
 
@@ -214,6 +264,7 @@ __all__ = [
     "ImageOnlyCLIPClassifier",
     "TextOnlyEncoderClassifier",
     "CLIPTextConcatClassifier",
+    "OpenCLIPMultimodalClassifier",
     "BASELINE_REGISTRY",
     "build_baseline",
 ]

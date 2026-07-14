@@ -1,0 +1,144 @@
+schema_version: external_model_catalog_v1
+storage_policy:
+  root: /home/sujin/psj2003/meme_detection_external
+  clone_during_current_task: false
+  install_during_current_task: false
+  execute_during_current_task: false
+
+models:
+  hateclipper:
+    display_name: HateCLIPper
+    paper_url: https://arxiv.org/abs/2210.05916
+    official_code_url: https://github.com/gokulkarthik/hateclipper
+    official_code_status: verified
+    priority: required
+    intended_comparison: [harmfulness, CLIP cross-modal interaction]
+    implementation_policy: official_adapter_after_approval
+    environment_policy: isolated_environment_required
+    status: blocked_dependency
+  rgcl:
+    display_name: RGCL
+    paper_url: https://aclanthology.org/2024.acl-long.291/
+    official_code_url: https://github.com/JingbiaoMei/RGCL
+    official_code_status: verified
+    priority: required
+    intended_comparison: [harmfulness, retrieval-guided contrastive learning, cross-dataset generalization]
+    implementation_policy: official_adapter_after_approval
+    environment_policy: isolated_environment_required
+    status: blocked_dependency
+    notes: [Select RGCL explicitly; do not run RA-HMD when RGCL is requested.]
+  momenta:
+    display_name: MOMENTA
+    paper_url: https://arxiv.org/abs/2109.05184
+    official_code_url: null
+    official_code_status: unverified
+    priority: required
+    intended_comparison: [harmfulness, target identification]
+    implementation_policy: block_until_repository_verified
+    status: blocked_dependency
+    notes: [Use only the harmful-meme MOMENTA model.]
+  prompthate:
+    display_name: PromptHate
+    paper_url: https://arxiv.org/abs/2302.04156
+    official_code_url: https://github.com/Social-AI-Studio/PromptHate
+    official_code_status: verified
+    priority: required
+    intended_comparison: [harmfulness, prompt-based classification, implicit pretrained knowledge]
+    implementation_policy: official_adapter_after_approval
+    environment_policy: isolated_environment_required
+    status: blocked_dependency
+    notes: [Preserve original architecture and objective; do not install historical dependencies into meme_cikm.]
+  intmeme:
+    display_name: IntMeme
+    paper_url: https://arxiv.org/abs/2502.11073
+    official_code_url: https://github.com/Social-AI-Studio/IntMeme
+    official_code_status: verified
+    priority: strongly_recommended
+    intended_comparison: [harmfulness, interpretation-enhanced classification, explainability]
+    implementation_policy: official_adapter_after_approval
+    environment_policy: isolated_environment_required
+    status: blocked_dependency
+  safe_meme:
+    display_name: SAFE-MEME
+    paper_url: https://arxiv.org/abs/2412.20541
+    official_code_url: https://github.com/PalGitts/SAFE-MEME
+    official_code_status: verified
+    priority: strongly_recommended
+    intended_comparison: [structured reasoning, explicit/implicit/benign classification, explanation]
+    implementation_policy: official_adapter_after_approval
+    environment_policy: isolated_environment_required
+    status: blocked_dependency
+  expo_hm:
+    display_name: ExPO-HM
+    paper_url: https://arxiv.org/abs/2510.08630
+    official_code_url: https://github.com/JingbiaoMei/ExPO-HM
+    official_code_status: verified
+    priority: optional_high_cost
+    intended_comparison: [explain-then-detect, fine-grained classification, reasoning quality]
+    implementation_policy: official_adapter_after_explicit_approval
+    environment_policy: isolated_environment_required
+    status: blocked_dependency
+  explainhm_pp:
+    display_name: EXPLAINHM++
+    paper_url: https://doi.org/10.1109/TKDE.2025.3637552
+    official_code_url: null
+    official_code_status: unverified
+    priority: strongly_recommended
+    intended_comparison: [retrieval-augmented debate, rationale generation, harmfulness]
+    implementation_policy: block_until_repository_verified
+    status: blocked_dependency
+  umr:
+    display_name: UMR
+    paper_url: https://aclanthology.org/2024.acl-long.239/
+    official_code_url: null
+    official_code_status: unverified
+    priority: optional
+    intended_comparison: [modality uncertainty, modality rebalance, harmfulness]
+    implementation_policy: block_until_repository_verified
+    status: blocked_dependency
+  hatesieve:
+    display_name: HateSieve
+    paper_url: https://arxiv.org/abs/2408.05794
+    official_code_url: null
+    official_code_status: unverified
+    priority: optional
+    intended_comparison: [harmfulness, hateful-element segmentation, evidence attribution]
+    implementation_policy: block_until_repository_verified
+    status: blocked_dependency
+  ra_hmd:
+    display_name: RA-HMD
+    paper_url: https://arxiv.org/abs/2502.13061
+    official_code_url: https://github.com/JingbiaoMei/RGCL
+    official_code_status: needs_subdirectory_and_commit_verification
+    priority: optional_high_cost
+    intended_comparison: [LMM fine-tuning, retrieval-guided contrastive learning, cross-domain generalization]
+    implementation_policy: block_until_exact_implementation_verified
+    status: blocked_dependency
+    notes: [Distinct from ACL 2024 RGCL; pin exact directory and commit before use.]
+  qwen25_vl:
+    display_name: Qwen2.5-VL
+    paper_url: null
+    official_code_url: https://github.com/QwenLM/Qwen2.5-VL
+    official_code_status: needs_version_pin
+    priority: strongly_recommended
+    implementation_policy: blocked_until_exact_model_and_revision_selected
+    status: blocked_checkpoint
+    notes: ["Do not substitute Qwen3-VL; pin identifier, revision, license, precision, and checkpoint."]
+  llava:
+    display_name: LLaVA
+    paper_url: null
+    official_code_url: https://github.com/haotian-liu/LLaVA
+    official_code_status: verified_repository
+    priority: strongly_recommended
+    implementation_policy: blocked_until_exact_model_revision_selected
+    status: blocked_checkpoint
+    notes: [Pin the exact checkpoint and revision.]
+  gpt4o:
+    display_name: GPT-4o
+    paper_url: null
+    official_code_url: null
+    official_code_status: api_model
+    priority: optional_high_cost
+    implementation_policy: blocked_api_credentials
+    status: blocked_api_credentials
+    notes: [Fix exact API model identifier and inference policy later; do not call during this task.]

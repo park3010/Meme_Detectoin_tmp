@@ -1,0 +1,416 @@
+schema_version: research_experiment_registry_v1
+registry_version: wsmd2027_harmeme_fhm_20260714_v1
+
+protocol:
+  name: harmeme_to_fhm_v1
+  split_seed: 42
+  source_train_datasets: [harm_c, harm_p]
+  source_validation_datasets: [harm_c, harm_p]
+  heldout_test_datasets: [facebook]
+  disabled_datasets: [memotion]
+  label_set: clean
+  source_split_manifest: result/splits/harmeme/source_split_seed_42.json
+  heldout_test_manifest: result/splits/fhm/heldout_test_manifest.json
+  fhm_structured_annotation_provenance: agent_silver_structured_evaluation
+  model_seeds:
+    smoke: [42]
+    one_seed: [42]
+    five_seed: [42, 52, 123, 777, 2026]
+
+knowledge_sources:
+  wikipedia_wikidata: {enabled: true, status: blocked_dependency, reason: current corpus provenance includes FHM}
+  conceptnet: {enabled: false, status: blocked_dependency, reason: source unavailable locally}
+  know_your_meme: {enabled: false, status: blocked_dependency, reason: source unavailable locally}
+  news_event: {enabled: false, status: blocked_dependency, reason: source unavailable locally}
+  web_snippets: {enabled: false, status: blocked_dependency, reason: live web retrieval disabled}
+  mixed: {enabled: false, status: blocked_dependency, reason: component sources unavailable}
+
+experiments:
+  text_only_deberta:
+    family: E1
+    group: built_in_baseline
+    display_name: Text-only DeBERTa
+    model: text_only_encoder
+    adapter: builtin_baseline
+    priority: required
+    enabled: true
+    status: ready
+    source_train_datasets: [harm_c, harm_p]
+    source_validation_datasets: [harm_c, harm_p]
+    heldout_test_datasets: [facebook]
+    tasks: [harmfulness]
+    seeds: [42, 52, 123, 777, 2026]
+    split_manifest: result/splits/harmeme/source_split_seed_42.json
+    dependencies: [local_deberta_v3_base]
+    execution_type: supervised_train
+    environment_name: meme_cikm
+    estimated_cost: medium
+    estimated_gpu_memory: unknown
+    official_paper_url: null
+    official_code_url: null
+    official_code_status: in_repository
+    implementation_policy: canonical_builtin
+    paper_targets: [main_baseline]
+    notes: [Uses original harmfulness labels and the fixed HarMeme split.]
+  image_only_openclip:
+    family: E1
+    group: built_in_baseline
+    display_name: Image-only OpenCLIP
+    model: image_only_clip
+    adapter: builtin_baseline
+    priority: required
+    enabled: true
+    status: ready
+    source_train_datasets: [harm_c, harm_p]
+    source_validation_datasets: [harm_c, harm_p]
+    heldout_test_datasets: [facebook]
+    tasks: [harmfulness]
+    seeds: [42, 52, 123, 777, 2026]
+    split_manifest: result/splits/harmeme/source_split_seed_42.json
+    dependencies: [local_openclip_vit_b_32]
+    execution_type: supervised_train
+    environment_name: meme_cikm
+    estimated_cost: medium
+    estimated_gpu_memory: unknown
+    official_paper_url: null
+    official_code_url: null
+    official_code_status: in_repository
+    implementation_policy: canonical_builtin
+    paper_targets: [main_baseline]
+    notes: []
+  image_text_concat:
+    family: E1
+    group: built_in_baseline
+    display_name: OpenCLIP Image + DeBERTa OCR Concat
+    model: clip_text_concat
+    adapter: builtin_baseline
+    priority: required
+    enabled: true
+    status: ready
+    source_train_datasets: [harm_c, harm_p]
+    source_validation_datasets: [harm_c, harm_p]
+    heldout_test_datasets: [facebook]
+    tasks: [harmfulness]
+    seeds: [42, 52, 123, 777, 2026]
+    split_manifest: result/splits/harmeme/source_split_seed_42.json
+    dependencies: [local_openclip_vit_b_32, local_deberta_v3_base]
+    execution_type: supervised_train
+    environment_name: meme_cikm
+    estimated_cost: medium
+    estimated_gpu_memory: unknown
+    official_paper_url: null
+    official_code_url: null
+    official_code_status: in_repository
+    implementation_policy: canonical_builtin
+    paper_targets: [main_baseline]
+    notes: [Distinct encoders followed by feature concatenation.]
+  openclip_classifier:
+    family: E1
+    group: built_in_baseline
+    display_name: Supervised OpenCLIP Multimodal Classifier
+    model: openclip_classifier
+    adapter: builtin_baseline
+    priority: required
+    enabled: true
+    status: ready
+    source_train_datasets: [harm_c, harm_p]
+    source_validation_datasets: [harm_c, harm_p]
+    heldout_test_datasets: [facebook]
+    tasks: [harmfulness]
+    seeds: [42, 52, 123, 777, 2026]
+    split_manifest: result/splits/harmeme/source_split_seed_42.json
+    dependencies: [local_openclip_vit_b_32]
+    execution_type: supervised_train
+    environment_name: meme_cikm
+    estimated_cost: medium
+    estimated_gpu_memory: unknown
+    official_paper_url: null
+    official_code_url: null
+    official_code_status: in_repository
+    implementation_policy: canonical_builtin
+    paper_targets: [main_baseline]
+    notes: [Shared OpenCLIP image/text space with interaction features; no Stage A-E or knowledge.]
+  ours_full:
+    family: E1
+    group: proposed
+    display_name: Ours Full
+    model: ours_full
+    adapter: builtin_framework
+    priority: required
+    enabled: true
+    status: ready
+    source_train_datasets: [harm_c, harm_p]
+    source_validation_datasets: [harm_c, harm_p]
+    heldout_test_datasets: [facebook]
+    tasks: [harmfulness, target_presence, target_granularity, intent_primary, tactic_rhetorical, tactic_multimodal_relation]
+    seeds: [42, 52, 123, 777, 2026]
+    split_manifest: result/splits/harmeme/source_split_seed_42.json
+    dependencies: [local_openclip_vit_b_32, local_deberta_v3_base, leakage_safe_retrieval_corpus]
+    execution_type: supervised_train
+    environment_name: meme_cikm
+    estimated_cost: high
+    estimated_gpu_memory: unknown
+    official_paper_url: null
+    official_code_url: null
+    official_code_status: in_repository
+    implementation_policy: canonical_builtin
+    paper_targets: [main_baseline, structured, evidence, rationale]
+    notes: [Strict preflight currently blocks if retrieval provenance includes FHM.]
+  ablation_w_o_retrieval: &ablation_base
+    family: E2
+    group: core_ablation
+    display_name: Ours w/o Retrieval
+    model: ours_full
+    adapter: builtin_framework
+    priority: required
+    enabled: true
+    status: ready
+    source_train_datasets: [harm_c, harm_p]
+    source_validation_datasets: [harm_c, harm_p]
+    heldout_test_datasets: [facebook]
+    tasks: [harmfulness, target_presence, target_granularity, intent_primary, tactic_rhetorical, tactic_multimodal_relation]
+    seeds: [42, 52, 123, 777, 2026]
+    split_manifest: result/splits/harmeme/source_split_seed_42.json
+    dependencies: [local_openclip_vit_b_32, local_deberta_v3_base]
+    execution_type: supervised_train_ablation
+    environment_name: meme_cikm
+    estimated_cost: high
+    estimated_gpu_memory: unknown
+    official_paper_url: null
+    official_code_url: null
+    official_code_status: in_repository
+    implementation_policy: canonical_train_time_ablation
+    paper_targets: [core_ablation, structured]
+    notes: [Applies identically to train, validation, and FHM inference.]
+    ablation: w_o_retrieval
+  ablation_w_o_support_verifier:
+    <<: *ablation_base
+    display_name: Ours w/o Support Verifier
+    ablation: w_o_support_verifier
+  ablation_w_o_task_aware_gate:
+    <<: *ablation_base
+    display_name: Ours w/o Task-aware Gate
+    ablation: w_o_task_aware_gate
+  ablation_w_o_structured_auxiliary:
+    <<: *ablation_base
+    display_name: Ours w/o Structured Auxiliary Losses
+    ablation: w_o_structured_auxiliary
+  knowledge_no_knowledge: &knowledge_base
+    family: E3
+    group: knowledge_comparison
+    display_name: No Knowledge
+    model: ours_full
+    adapter: diagnostic_knowledge
+    priority: required
+    enabled: true
+    status: unsupported_current_protocol
+    source_train_datasets: [harm_c, harm_p]
+    source_validation_datasets: [harm_c, harm_p]
+    heldout_test_datasets: [facebook]
+    tasks: [harmfulness, target_presence, target_granularity, intent_primary, tactic_rhetorical, tactic_multimodal_relation]
+    seeds: [42]
+    split_manifest: result/splits/harmeme/source_split_seed_42.json
+    dependencies: [train_time_knowledge_mode_implementation]
+    execution_type: evaluation_time_diagnostic
+    environment_name: meme_cikm
+    estimated_cost: medium
+    estimated_gpu_memory: unknown
+    official_paper_url: null
+    official_code_url: null
+    official_code_status: in_repository
+    implementation_policy: block_until_train_time_mode_exists
+    paper_targets: [knowledge]
+    notes: [Current knowledge comparison is evaluation-time only and not paper-ready.]
+    knowledge_mode: no_knowledge
+  knowledge_retrieved_only:
+    <<: *knowledge_base
+    display_name: Retrieved Only
+    knowledge_mode: retrieved_only
+  knowledge_generated_retrieved:
+    <<: *knowledge_base
+    display_name: Generated + Retrieved
+    knowledge_mode: generated_retrieved
+  knowledge_verified:
+    <<: *knowledge_base
+    display_name: Verified Knowledge
+    knowledge_mode: verified_knowledge
+  structured_fhm_silver:
+    family: E4
+    group: structured_evaluation
+    display_name: FHM Silver Structured Evaluation
+    model: posthoc_structured_evaluator
+    adapter: posthoc_analysis
+    priority: required
+    enabled: false
+    status: ready
+    source_train_datasets: [harm_c, harm_p]
+    source_validation_datasets: [harm_c, harm_p]
+    heldout_test_datasets: [facebook]
+    tasks: [target_presence, target_granularity, intent_primary, tactic_rhetorical, tactic_multimodal_relation]
+    seeds: [42]
+    split_manifest: result/splits/harmeme/source_split_seed_42.json
+    dependencies: [completed_applicable_model_predictions]
+    execution_type: posthoc_silver_evaluation
+    environment_name: meme_cikm
+    estimated_cost: low
+    estimated_gpu_memory: 0
+    official_paper_url: null
+    official_code_url: null
+    official_code_status: in_repository
+    implementation_policy: canonical_posthoc_evaluation
+    paper_targets: [structured]
+    notes: [Silver structured evaluation; never describe as human-adjudicated gold.]
+  automatic_evidence_rationale_verifier:
+    family: E5
+    group: evidence_rationale_verifier
+    display_name: Automatic Evidence/Rationale/Verifier Proxies
+    model: posthoc_automatic_analysis
+    adapter: posthoc_analysis
+    priority: required
+    enabled: false
+    status: ready
+    source_train_datasets: [harm_c, harm_p]
+    source_validation_datasets: [harm_c, harm_p]
+    heldout_test_datasets: [facebook]
+    tasks: [evidence, rationale, verifier]
+    seeds: [42]
+    split_manifest: result/splits/harmeme/source_split_seed_42.json
+    dependencies: [completed_ours_full_predictions]
+    execution_type: posthoc_proxy_analysis
+    environment_name: meme_cikm
+    estimated_cost: low
+    estimated_gpu_memory: 0
+    official_paper_url: null
+    official_code_url: null
+    official_code_status: in_repository
+    implementation_policy: automatic_proxies_not_human_faithfulness
+    paper_targets: [evidence, rationale]
+    notes: [Automatic proxies must not be described as human faithfulness.]
+  human_evidence_evaluation: &human_eval_base
+    family: E5
+    group: human_evaluation
+    display_name: Human Evidence Evaluation
+    model: human_annotation
+    adapter: blocked_human_annotation
+    priority: required
+    enabled: false
+    status: blocked_human_annotation
+    source_train_datasets: [harm_c, harm_p]
+    source_validation_datasets: [harm_c, harm_p]
+    heldout_test_datasets: [facebook]
+    tasks: [evidence]
+    seeds: [42]
+    split_manifest: result/splits/harmeme/source_split_seed_42.json
+    dependencies: [independent_human_raters]
+    execution_type: human_annotation
+    environment_name: human_eval
+    estimated_cost: unknown
+    estimated_gpu_memory: 0
+    official_paper_url: null
+    official_code_url: null
+    official_code_status: in_repository_scaffold
+    implementation_policy: export_only_until_human_labels_imported
+    paper_targets: [evidence]
+    notes: [Forms are implemented; judgments are not generated.]
+  human_rationale_evaluation:
+    <<: *human_eval_base
+    display_name: Human Rationale Evaluation
+    tasks: [rationale]
+    paper_targets: [rationale]
+  human_verifier_evaluation:
+    <<: *human_eval_base
+    display_name: Human Verifier Evaluation
+    tasks: [verifier]
+    paper_targets: [evidence]
+  error_case_export:
+    family: E6
+    group: error_analysis
+    display_name: FHM Error Case Export
+    model: posthoc_error_export
+    adapter: posthoc_analysis
+    priority: required
+    enabled: false
+    status: ready
+    source_train_datasets: [harm_c, harm_p]
+    source_validation_datasets: [harm_c, harm_p]
+    heldout_test_datasets: [facebook]
+    tasks: [harmfulness, target_presence, intent_primary, tactic_rhetorical, tactic_multimodal_relation]
+    seeds: [42]
+    split_manifest: result/splits/harmeme/source_split_seed_42.json
+    dependencies: [completed_ours_full_predictions]
+    execution_type: posthoc_error_export
+    environment_name: meme_cikm
+    estimated_cost: low
+    estimated_gpu_memory: 0
+    official_paper_url: null
+    official_code_url: null
+    official_code_status: in_repository
+    implementation_policy: human_causal_attribution_required
+    paper_targets: [error_analysis]
+    notes: [Attention and gate values are review context, not causal stage labels.]
+
+external_experiments:
+  - {id: hateclipper, family: E1, group: external_supervised, adapter: blocked_external, status: blocked_dependency}
+  - {id: rgcl, family: E1, group: external_supervised, adapter: blocked_external, status: blocked_dependency}
+  - {id: momenta, family: E1, group: external_supervised, adapter: blocked_external, status: blocked_dependency}
+  - {id: prompthate, family: E1, group: external_supervised, adapter: blocked_external, status: blocked_dependency}
+  - {id: explainhm_pp, family: E1, group: external_supervised, adapter: blocked_external, status: blocked_dependency}
+  - {id: intmeme, family: E1, group: external_supervised, adapter: blocked_external, status: blocked_dependency}
+  - {id: safe_meme, family: E1, group: external_supervised, adapter: blocked_external, status: blocked_dependency}
+  - {id: umr, family: E1, group: external_supervised, adapter: blocked_external, status: blocked_dependency}
+  - {id: hatesieve, family: E1, group: external_supervised, adapter: blocked_external, status: blocked_dependency}
+  - {id: ra_hmd, family: E1, group: external_supervised, adapter: blocked_external, status: blocked_dependency}
+  - {id: expo_hm, family: E1, group: external_supervised, adapter: blocked_external, status: blocked_dependency}
+  - {id: qwen25_vl_direct, family: E1, group: vlm_prompting, adapter: blocked_external, catalog_id: qwen25_vl, status: blocked_checkpoint}
+  - {id: qwen25_vl_cot, family: E1, group: vlm_prompting, adapter: blocked_external, catalog_id: qwen25_vl, status: blocked_checkpoint}
+  - {id: llava_direct, family: E1, group: vlm_prompting, adapter: blocked_external, catalog_id: llava, status: blocked_checkpoint}
+  - {id: llava_cot, family: E1, group: vlm_prompting, adapter: blocked_external, catalog_id: llava, status: blocked_checkpoint}
+  - {id: gpt4o_direct, family: E1, group: api_prompting, adapter: blocked_external, catalog_id: gpt4o, status: blocked_api_credentials}
+  - {id: gpt4o_cot, family: E1, group: api_prompting, adapter: blocked_external, catalog_id: gpt4o, status: blocked_api_credentials}
+  - {id: gpt4o_rag, family: E1, group: api_prompting, adapter: blocked_external, catalog_id: gpt4o, status: blocked_api_credentials}
+  - {id: explainhm_debate, family: E1, group: agent_prompting, adapter: blocked_external, catalog_id: explainhm_pp, status: blocked_dependency}
+
+suites:
+  harmeme_to_fhm_smoke:
+    description: Small protocol-valid built-in dry-run/smoke suite.
+    experiments: [text_only_deberta, ours_full]
+    seeds: [42]
+    datasets: [harm_c, harm_p, facebook]
+    limit: 100
+    enabled: true
+  harmeme_to_fhm_1seed:
+    description: One-seed built-in baseline, Ours Full, and core-ablation suite.
+    experiments: [text_only_deberta, image_only_openclip, image_text_concat, openclip_classifier, ours_full, ablation_w_o_retrieval, ablation_w_o_support_verifier, ablation_w_o_task_aware_gate, ablation_w_o_structured_auxiliary]
+    seeds: [42]
+    datasets: [harm_c, harm_p, facebook]
+    enabled: true
+  harmeme_to_fhm_5seed:
+    description: Five-seed paper suite for built-in models and core ablations.
+    experiments: [text_only_deberta, image_only_openclip, image_text_concat, openclip_classifier, ours_full, ablation_w_o_retrieval, ablation_w_o_support_verifier, ablation_w_o_task_aware_gate, ablation_w_o_structured_auxiliary]
+    seeds: [42, 52, 123, 777, 2026]
+    datasets: [harm_c, harm_p, facebook]
+    enabled: true
+  harmeme_to_fhm_knowledge_1seed:
+    description: Registered knowledge comparison; blocked until train-time modes exist.
+    experiments: [knowledge_no_knowledge, knowledge_retrieved_only, knowledge_generated_retrieved, knowledge_verified]
+    seeds: [42]
+    datasets: [harm_c, harm_p, facebook]
+    enabled: true
+  harmeme_to_fhm_structured_1seed:
+    description: FHM silver structured evaluation for applicable trained models.
+    experiments: [ours_full, ablation_w_o_retrieval, ablation_w_o_support_verifier, ablation_w_o_task_aware_gate, ablation_w_o_structured_auxiliary]
+    seeds: [42]
+    datasets: [facebook]
+    enabled: true
+  harmeme_to_fhm_error_export:
+    description: Error and human-review package export from completed FHM runs.
+    experiments: [ours_full]
+    seeds: [42]
+    datasets: [facebook]
+    enabled: true
+
+legacy_suites:
+  core_smoke: {enabled: false, role: legacy_in_domain_diagnostic}
+  core_1seed: {enabled: false, role: legacy_in_domain_diagnostic}
+  core_5seed: {enabled: false, role: legacy_in_domain_diagnostic}
+  knowledge_1seed: {enabled: false, role: legacy_in_domain_diagnostic}

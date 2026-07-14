@@ -145,7 +145,14 @@ def test_legacy_paths_are_physically_removed():
 
 def test_config_directory_contains_only_canonical_runtime_files():
     files = sorted(path.name for path in (ROOT / "configs").iterdir())
-    assert files == ["annotation_normalization.yaml", "config.yaml", "label_vocab.yaml"]
+    assert files == [
+        "annotation_normalization.yaml",
+        "config.yaml",
+        "experiment_registry.yaml",
+        "external_models.yaml",
+        "human_evaluation",
+        "label_vocab.yaml",
+    ]
 
 
 def test_active_source_has_no_legacy_imports_or_deleted_cli_references():

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import shlex
 import sys
 from datetime import datetime, timezone
@@ -156,13 +157,16 @@ def build_data_snapshot(
                 "sha256": sha256_file(path),
             }
         )
-    return {
+    snapshot_payload = {
         "normalized_root": str(normalized_root),
         "label_set": label_set,
         "label_vocab_path": str(label_vocab_path),
         "label_vocab_sha256": sha256_file(label_vocab_path),
         "normalized_label_files": files,
     }
+    encoded = json.dumps(snapshot_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    snapshot_payload["normalized_label_snapshot_sha256"] = hashlib.sha256(encoded).hexdigest()
+    return snapshot_payload
 
 
 def write_run_manifest(output_dir: str | Path, manifest: dict[str, Any]) -> Path:

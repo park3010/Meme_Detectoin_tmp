@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+from collections import Counter
 from math import isnan
 from pathlib import Path
 from typing import Any, Iterable
@@ -256,6 +257,7 @@ def evaluate_structured_predictions(
     )
     evidence_scores = weak_evidence_scores(records, k=evidence_k, disable_tqdm=disable_tqdm, progress=progress)
     metrics.update(evidence_scores)
+    _attach_structured_coverage_metrics(metrics, records)
     return metrics
 
 
@@ -355,6 +357,9 @@ def _formal_tactic_inputs(records: list[dict[str, Any]]) -> tuple[list[list[floa
     gold: list[list[str]] = []
     missing_count = 0
     for record in records:
+        masks = record.get("gold_label_masks", {}) if isinstance(record.get("gold_label_masks"), dict) else {}
+        if record.get("structured_label_eligible") is False or int(masks.get("tactic_rhetorical", 1) or 0) == 0:
+            continue
         current = extract_tactic_logits(record)
         if current is None:
             missing_count += 1
@@ -362,6 +367,68 @@ def _formal_tactic_inputs(records: list[dict[str, Any]]) -> tuple[list[list[floa
         logits.append(current)
         gold.append(extract_gold_tactic_labels(record))
     return logits, gold, missing_count
+
+
+def _attach_structured_coverage_metrics(metrics: dict[str, Any], records: list[dict[str, Any]]) -> None:
+    """Attach mask-aware valid-N statistics and canonical field metrics."""
+
+    fields = {
+        "target_presence": ("gold_target", "target_presence", "target", "presence", "single"),
+        "target_granularity": ("gold_target", "target_granularity", "target", "granularity", "single"),
+        "intent_primary": ("gold_intent", "intent_primary", "intent", "primary", "single"),
+        "tactic_multimodal_relation": ("gold_tactic", "tactic_multimodal_relation", "tactic", "multimodal_relation", "single"),
+        "tactic_rhetorical": ("gold_tactic", "tactic_rhetorical", "tactic", "rhetorical", "multi"),
+    }
+    total = len(records)
+    harmful_valid = [record for record in records if record.get("gold_label") is not None]
+    metrics["harmfulness_valid_n"] = len(harmful_valid)
+    metrics["harmfulness_total_n"] = total
+    metrics["harmfulness_coverage"] = len(harmful_valid) / total if total else None
+    metrics["harmfulness_unknown_count"] = total - len(harmful_valid)
+    metrics["harmfulness_ambiguous_count"] = 0
+    metrics["harmfulness_masked_count"] = 0
+    metrics["harmfulness_class_distribution"] = dict(
+        sorted(Counter(str(record.get("gold_harmfulness") or record.get("gold_label")) for record in harmful_valid).items())
+    )
+
+    for field, (gold_group, gold_key, pred_group, pred_key, task_type) in fields.items():
+        valid_gold: list[Any] = []
+        valid_pred: list[Any] = []
+        unknown_count = 0
+        ambiguous_count = 0
+        masked_count = 0
+        distribution: Counter[str] = Counter()
+        for record in records:
+            masks = record.get("gold_label_masks", {}) if isinstance(record.get("gold_label_masks"), dict) else {}
+            gold = (record.get(gold_group, {}) or {}).get(gold_key)
+            pred = (record.get(pred_group, {}) or {}).get(pred_key)
+            values = as_list(gold) if task_type == "multi" else [gold]
+            normalized = [str(value) for value in values if value is not None and str(value) != ""]
+            if any(value == "ambiguous" for value in normalized):
+                ambiguous_count += 1
+                continue
+            if not normalized or all(value == "unknown" for value in normalized):
+                unknown_count += 1
+                continue
+            if record.get("structured_label_eligible") is False or int(masks.get(field, 1) or 0) == 0:
+                masked_count += 1
+                continue
+            valid_gold.append(normalized if task_type == "multi" else normalized[0])
+            valid_pred.append(as_list(pred) if task_type == "multi" else pred)
+            distribution.update(normalized)
+        valid_n = len(valid_gold)
+        metrics[f"{field}_valid_n"] = valid_n
+        metrics[f"{field}_total_n"] = total
+        metrics[f"{field}_coverage"] = valid_n / total if total else None
+        metrics[f"{field}_unknown_count"] = unknown_count
+        metrics[f"{field}_ambiguous_count"] = ambiguous_count
+        metrics[f"{field}_masked_count"] = masked_count
+        metrics[f"{field}_class_distribution"] = dict(sorted(distribution.items()))
+        if task_type == "single":
+            metrics[f"{field}_macro_f1"] = macro_f1(valid_gold, valid_pred)
+        else:
+            formal_key = "tactic_rhetorical_macro_f1_logits_only"
+            metrics[f"{field}_formal_macro_f1"] = metrics.get(formal_key)
 
 
 def _first_tactic_label_order(records: list[dict[str, Any]]) -> list[str]:
@@ -380,6 +447,7 @@ def _blocked_tactic_metrics(spec: TacticDecodingSpec, reason: str) -> dict[str, 
         "tactic_rhetorical_blocked_reason": reason,
         "tactic_rhetorical_macro_f1_logits_only": None,
         "tactic_rhetorical_micro_f1_logits_only": None,
+        "tactic_rhetorical_per_label_f1_logits_only": {},
         "tactic_rhetorical_none_f1": None,
         "tactic_rhetorical_exact_match_ratio": None,
         "tactic_rhetorical_eligible_sample_count": 0,

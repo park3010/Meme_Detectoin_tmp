@@ -1,0 +1,7 @@
+{
+  "schema_version": "human_rationale_evaluation_v1",
+  "required_columns": ["item_id", "annotator_id", "faithfulness", "usefulness", "specificity", "label_consistency"],
+  "rating_scale": {"minimum": 1, "maximum": 5},
+  "optional_columns": ["hallucination_flag", "notes"],
+  "missing_value_policy": "blank means unrated; zero is invalid"
+}

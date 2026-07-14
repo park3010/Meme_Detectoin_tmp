@@ -24,6 +24,7 @@ from experiments.prediction_io import save_predictions_and_metrics, stage_output
 from experiments.progress import ProgressConfig, progress_iter, progress_write, set_progress_postfix
 from experiments.pretrained_assets import build_asset_provenance
 from experiments.run_manifest import build_data_snapshot, build_run_manifest, collect_backbone_state, current_command, sha256_file, write_run_manifest
+from experiments.research_protocol import load_manifest as load_research_manifest, select_manifest_samples
 from experiments.splits import build_splits_for_dataset, label_to_int, load_split_file, save_splits, split_samples
 from experiments.tactic_decoding import (
     extract_gold_tactic_labels,
@@ -41,7 +42,7 @@ from experiments.ablation_configs import (
     normalize_ablation_name,
     runtime_config_for_ablation,
 )
-from module.baseline import CLIPTextConcatClassifier, ImageOnlyCLIPClassifier, TextOnlyEncoderClassifier
+from module.baseline import CLIPTextConcatClassifier, ImageOnlyCLIPClassifier, OpenCLIPMultimodalClassifier, TextOnlyEncoderClassifier
 from module.losses import StructuredMemeLoss, extract_supervision_from_annotation
 from module.runner import HarmfulMemePipeline
 from utils.io import load_yaml, write_json, write_jsonl
@@ -88,6 +89,11 @@ class OursRunConfig:
     suite_name: str | None = None
     requested_command: str | None = None
     progress: ProgressConfig | None = None
+    source_dataset_names: list[str] | None = None
+    source_split_manifest: str | None = None
+    heldout_test_dataset: str | None = None
+    heldout_test_manifest: str | None = None
+    annotation_provenance: str | None = None
 
 
 def run_ours_experiment(config: OursRunConfig) -> dict[str, Any]:
@@ -96,7 +102,11 @@ def run_ours_experiment(config: OursRunConfig) -> dict[str, Any]:
     set_seed(config.seed)
     cfg = load_yaml(config.config_path)
     dataset = _load_ours_dataset(config, cfg)
-    samples = _materialize_ours_samples(dataset, prefer_normalized=config.use_normalized_labels)
+    protocol_run = bool(config.source_split_manifest)
+    samples = _materialize_ours_samples(
+        dataset,
+        prefer_normalized=config.use_normalized_labels and not protocol_run,
+    )
     split_dataset = dataset.base_dataset if isinstance(dataset, NormalizedMemeDataset) else dataset
     if config.use_normalized_labels and not samples:
         progress_write(
@@ -108,8 +118,25 @@ def run_ours_experiment(config: OursRunConfig) -> dict[str, Any]:
         dataset = _load_ours_legacy_dataset(config, cfg)
         split_dataset = dataset
         samples = _materialize_ours_samples(dataset, prefer_normalized=False)
-    splits = _load_or_create_ours_splits(config, split_dataset, cfg)
-    materialized = split_samples(samples, splits)
+    if protocol_run:
+        source_manifest = load_research_manifest(config.source_split_manifest or "")
+        materialized = {
+            "train": select_manifest_samples(samples, source_manifest.get("train", []), limit=config.limit),
+            "valid": select_manifest_samples(samples, source_manifest.get("validation", []), limit=config.limit),
+            "test": [],
+        }
+        if config.heldout_test_dataset and config.heldout_test_manifest:
+            heldout_dataset = _load_ours_heldout_dataset(config, cfg)
+            heldout_samples = _materialize_ours_samples(heldout_dataset, prefer_normalized=False)
+            heldout_manifest = load_research_manifest(config.heldout_test_manifest)
+            materialized["test"] = select_manifest_samples(
+                heldout_samples,
+                heldout_manifest.get("test", []),
+                limit=config.limit,
+            )
+    else:
+        splits = _load_or_create_ours_splits(config, split_dataset, cfg)
+        materialized = split_samples(samples, splits)
 
     device = _resolve_training_device(config.device)
     cfg.setdefault("runtime", {})["device"] = str(device)
@@ -476,16 +503,17 @@ def _load_or_create_ours_splits(config: OursRunConfig, dataset: Any, cfg: dict[s
 
 
 def _load_ours_dataset(config: OursRunConfig, cfg: dict[str, Any]) -> Any:
+    dataset_names = list(config.source_dataset_names or [config.dataset_name])
     if config.use_normalized_labels:
         return NormalizedMemeDataset(
             dataset_root=cfg.get("paths", {}).get("dataset_root", "dataset/source"),
             annotation_root=cfg.get("paths", {}).get("annotation_root", "dataset/annotation"),
             normalized_root=cfg.get("paths", {}).get("normalized_root", config.normalized_root),
-            dataset_names=[config.dataset_name],
-            label_set=config.label_set,
+            dataset_names=dataset_names,
+            label_set="full" if config.source_split_manifest else config.label_set,
             vocab_path=config.vocab_path,
             keep_missing_images=True,
-            limit=config.limit,
+            limit=None if config.source_split_manifest else config.limit,
             require_normalized_label=config.require_normalized_label,
         )
     return _load_ours_legacy_dataset(config, cfg)
@@ -495,9 +523,31 @@ def _load_ours_legacy_dataset(config: OursRunConfig, cfg: dict[str, Any]) -> Mem
     return MemeDataset(
         dataset_root=cfg.get("paths", {}).get("dataset_root", "dataset/source"),
         annotation_root=cfg.get("paths", {}).get("annotation_root", "dataset/annotation"),
-        dataset_names=[config.dataset_name],
+        dataset_names=list(config.source_dataset_names or [config.dataset_name]),
         keep_missing_images=True,
-        limit=config.limit,
+        limit=None if config.source_split_manifest else config.limit,
+    )
+
+
+def _load_ours_heldout_dataset(config: OursRunConfig, cfg: dict[str, Any]) -> Any:
+    dataset_name = str(config.heldout_test_dataset)
+    if config.use_normalized_labels:
+        return NormalizedMemeDataset(
+            dataset_root=cfg.get("paths", {}).get("dataset_root", "dataset/source"),
+            annotation_root=cfg.get("paths", {}).get("annotation_root", "dataset/annotation"),
+            normalized_root=cfg.get("paths", {}).get("normalized_root", config.normalized_root),
+            dataset_names=[dataset_name],
+            label_set="full",
+            vocab_path=config.vocab_path,
+            keep_missing_images=True,
+            limit=None,
+            require_normalized_label=True,
+        )
+    return MemeDataset(
+        dataset_root=cfg.get("paths", {}).get("dataset_root", "dataset/source"),
+        annotation_root=cfg.get("paths", {}).get("annotation_root", "dataset/annotation"),
+        dataset_names=[dataset_name],
+        keep_missing_images=True,
     )
 
 
@@ -546,6 +596,9 @@ def _formal_tactic_inputs(records: list[dict[str, Any]]) -> tuple[list[list[floa
     gold: list[list[str]] = []
     missing = 0
     for record in records:
+        masks = record.get("gold_label_masks", {}) if isinstance(record.get("gold_label_masks"), dict) else {}
+        if record.get("structured_label_eligible") is False or int(masks.get("tactic_rhetorical", 1) or 0) == 0:
+            continue
         current = extract_tactic_logits(record)
         if current is None:
             missing += 1
@@ -598,6 +651,11 @@ class BaselineRunConfig:
     suite_name: str | None = None
     requested_command: str | None = None
     progress: ProgressConfig | None = None
+    source_dataset_names: list[str] | None = None
+    source_split_manifest: str | None = None
+    heldout_test_dataset: str | None = None
+    heldout_test_manifest: str | None = None
+    annotation_provenance: str | None = None
 
 
 def run_baseline_experiment(config: BaselineRunConfig) -> dict[str, Any]:
@@ -607,9 +665,10 @@ def run_baseline_experiment(config: BaselineRunConfig) -> dict[str, Any]:
     cfg = load_yaml(config.config_path)
     dataset = _load_baseline_dataset(config, cfg)
     sample_dicts = []
+    protocol_run = bool(config.source_split_manifest)
     for sample in dataset:
         try:
-            sample_dicts.append(_normalize_sample(sample))
+            sample_dicts.append(_normalize_sample(sample, prefer_original=protocol_run))
         except ValueError:
             continue
     split_dataset = dataset.base_dataset if isinstance(dataset, NormalizedMemeDataset) else dataset
@@ -628,8 +687,30 @@ def run_baseline_experiment(config: BaselineRunConfig) -> dict[str, Any]:
                 sample_dicts.append(_normalize_sample(sample))
             except ValueError:
                 continue
-    splits = _load_or_create_baseline_splits(config, split_dataset)
-    materialized = split_samples(sample_dicts, splits)
+    if protocol_run:
+        source_manifest = load_research_manifest(config.source_split_manifest or "")
+        materialized = {
+            "train": select_manifest_samples(sample_dicts, source_manifest.get("train", []), limit=config.limit),
+            "valid": select_manifest_samples(sample_dicts, source_manifest.get("validation", []), limit=config.limit),
+            "test": [],
+        }
+        if config.heldout_test_dataset and config.heldout_test_manifest:
+            heldout_dataset = _load_baseline_heldout_dataset(config, cfg)
+            heldout_samples = []
+            for sample in heldout_dataset:
+                try:
+                    heldout_samples.append(_normalize_sample(sample, prefer_original=True))
+                except ValueError:
+                    continue
+            heldout_manifest = load_research_manifest(config.heldout_test_manifest)
+            materialized["test"] = select_manifest_samples(
+                heldout_samples,
+                heldout_manifest.get("test", []),
+                limit=config.limit,
+            )
+    else:
+        splits = _load_or_create_baseline_splits(config, split_dataset)
+        materialized = split_samples(sample_dicts, splits)
 
     device = _resolve_training_device(config.device)
     model = create_baseline_model(config.model_name, cfg, device=str(device)).to(device)
@@ -735,6 +816,15 @@ def run_baseline_experiment(config: BaselineRunConfig) -> dict[str, Any]:
     if training_log:
         training_log[-1]["stopped_early"] = bool(stopper.stopped_early)
     save_training_log(output_dir, training_log)
+    _, validation_predictions = evaluate_model(
+        model,
+        validation_samples,
+        config.batch_size,
+        device,
+        progress=progress_config,
+        desc="valid final",
+    )
+    write_jsonl(output_dir / "validation_predictions.jsonl", validation_predictions)
     test_metrics, predictions = evaluate_model(model, materialized.get("test", []), config.batch_size, device, progress=progress_config, desc="test")
     save_baseline_outputs(config, model, predictions, test_metrics)
     backbone_state = collect_backbone_state(model)
@@ -753,14 +843,18 @@ def run_baseline_experiment(config: BaselineRunConfig) -> dict[str, Any]:
         expected_evidence_mode="baseline",
         extra={
             "baseline_model": config.model_name,
+            "parameter_count": sum(int(param.numel()) for param in model.parameters()),
+            "trainable_parameter_count": sum(int(param.numel()) for param in model.parameters() if param.requires_grad),
             "backbone_state": backbone_state,
             "pretrained_asset_provenance": build_asset_provenance(cfg, runtime_state=backbone_state),
             "data_snapshot": build_data_snapshot(
                 normalized_root=config.normalized_root,
                 label_set=config.label_set,
                 label_vocab_path=config.vocab_path,
-                datasets=[config.dataset_name],
+                datasets=list(config.source_dataset_names or [config.dataset_name])
+                + ([config.heldout_test_dataset] if config.heldout_test_dataset else []),
             ),
+            **_research_manifest_fields(config),
         },
     )
     write_run_manifest(Path(config.output_root) / "predictions" / config.dataset_name / config.model_name / str(config.seed), manifest)
@@ -831,6 +925,19 @@ def create_baseline_model(model_name: str, cfg: dict[str, Any] | None = None, de
             text_local_files_only=bool(text_cfg.get("local_files_only", True)),
             text_allow_download=bool(text_cfg.get("allow_download", False)),
             text_asset_mode=text_cfg.get("asset_mode"),
+        )
+    if model_name == "openclip_classifier":
+        return OpenCLIPMultimodalClassifier(
+            hidden_dim=hidden_dim,
+            prefer_pretrained_clip=bool(clip_cfg.get("prefer_pretrained", False)),
+            clip_model_name=str(clip_cfg.get("model_name", "ViT-B-32")),
+            device=device,
+            clip_pretrained_tag=clip_cfg.get("pretrained_tag"),
+            clip_checkpoint_path=clip_cfg.get("checkpoint_path"),
+            clip_cache_dir=clip_cfg.get("cache_dir"),
+            clip_local_files_only=bool(clip_cfg.get("local_files_only", True)),
+            clip_allow_download=bool(clip_cfg.get("allow_download", False)),
+            clip_asset_mode=clip_cfg.get("asset_mode"),
         )
     raise ValueError(f"Unsupported baseline model: {model_name}")
 
@@ -926,10 +1033,19 @@ def evaluate_model(
         probs = torch.softmax(logits, dim=-1)
         pred = torch.argmax(probs, dim=-1)
         for idx, sample in enumerate(batch):
+            metadata = sample.get("metadata", {}) if isinstance(sample.get("metadata"), dict) else {}
             predictions.append(
                 {
                     "sample_id": sample["sample_id"],
                     "dataset_name": sample["dataset_name"],
+                    "sample_key": sample.get("sample_key") or metadata.get("sample_key"),
+                    "dataset_family": metadata.get("dataset_family"),
+                    "original_dataset": metadata.get("original_dataset") or sample.get("dataset_name"),
+                    "domain": metadata.get("domain"),
+                    "domain_role": metadata.get("domain_role"),
+                    "annotation_provenance": "original_fhm_label"
+                    if metadata.get("dataset_family") == "fhm"
+                    else "original_dataset_label",
                     "gold_label": int(sample["label"]),
                     "pred_label": int(pred[idx]),
                     "prob_harmful": float(probs[idx, 1]),
@@ -1026,26 +1142,52 @@ def _ours_manifest(config: OursRunConfig, pipeline: HarmfulMemePipeline) -> dict
             "train_relevance_mlp": config.train_relevance_mlp,
             "harmfulness_only": config.harmfulness_only,
             "structured_auxiliary": config.structured_auxiliary,
+            "parameter_count": sum(int(param.numel()) for param in pipeline.parameters()),
+            "trainable_parameter_count": sum(int(param.numel()) for param in pipeline.parameters() if param.requires_grad),
             "backbone_state": backbone_state,
             "pretrained_asset_provenance": build_asset_provenance(cfg, runtime_state=backbone_state),
             "data_snapshot": build_data_snapshot(
                 normalized_root=config.normalized_root,
                 label_set=config.label_set,
                 label_vocab_path=config.vocab_path,
-                datasets=[config.dataset_name],
+                datasets=list(config.source_dataset_names or [config.dataset_name])
+                + ([config.heldout_test_dataset] if config.heldout_test_dataset else []),
             ),
+            **_research_manifest_fields(config),
         },
     )
 
 
 def _resolved_split_path(config: OursRunConfig | BaselineRunConfig) -> Path:
+    if config.source_split_manifest:
+        return Path(config.source_split_manifest)
     if config.split_file:
         return Path(config.split_file)
     return Path(config.output_root) / "splits" / config.dataset_name / f"seed_{config.seed}.json"
 
 
-def _normalize_sample(sample: dict[str, Any]) -> dict[str, Any]:
-    label = _normalized_baseline_harmfulness_label(sample)
+def _research_manifest_fields(config: OursRunConfig | BaselineRunConfig) -> dict[str, Any]:
+    if not config.source_split_manifest:
+        return {}
+    source_path = Path(config.source_split_manifest)
+    fhm_path = Path(config.heldout_test_manifest) if config.heldout_test_manifest else None
+    return {
+        "paper_protocol": "harmeme_to_fhm_v1",
+        "source_train_manifest_path": str(source_path),
+        "source_train_manifest_sha256": sha256_file(source_path),
+        "source_validation_manifest_path": str(source_path),
+        "source_validation_manifest_sha256": sha256_file(source_path),
+        "fhm_test_manifest_path": str(fhm_path) if fhm_path else None,
+        "fhm_test_manifest_sha256": sha256_file(fhm_path),
+        "annotation_provenance": config.annotation_provenance,
+        "threshold_selection_dataset": "HarMeme validation",
+        "early_stopping_dataset": "HarMeme validation",
+        "heldout_test_dataset": config.heldout_test_dataset,
+    }
+
+
+def _normalize_sample(sample: dict[str, Any], *, prefer_original: bool = False) -> dict[str, Any]:
+    label = None if prefer_original else _normalized_baseline_harmfulness_label(sample)
     if label is None:
         label = label_to_int(sample.get("raw_label"))
     if label is None:
@@ -1056,16 +1198,17 @@ def _normalize_sample(sample: dict[str, Any]) -> dict[str, Any]:
 
 
 def _load_baseline_dataset(config: BaselineRunConfig, cfg: dict[str, Any]) -> Any:
+    dataset_names = list(config.source_dataset_names or [config.dataset_name])
     if config.use_normalized_labels:
         return NormalizedMemeDataset(
             dataset_root=cfg.get("paths", {}).get("dataset_root", "dataset/source"),
             annotation_root=cfg.get("paths", {}).get("annotation_root", "dataset/annotation"),
             normalized_root=cfg.get("paths", {}).get("normalized_root", config.normalized_root),
-            dataset_names=[config.dataset_name],
-            label_set=config.label_set,
+            dataset_names=dataset_names,
+            label_set="full" if config.source_split_manifest else config.label_set,
             vocab_path=config.vocab_path,
             keep_missing_images=True,
-            limit=config.limit,
+            limit=None if config.source_split_manifest else config.limit,
             require_normalized_label=config.require_normalized_label,
         )
     return _load_baseline_legacy_dataset(config, cfg)
@@ -1075,9 +1218,30 @@ def _load_baseline_legacy_dataset(config: BaselineRunConfig, cfg: dict[str, Any]
     return MemeDataset(
         dataset_root=cfg.get("paths", {}).get("dataset_root", "dataset/source"),
         annotation_root=cfg.get("paths", {}).get("annotation_root", "dataset/annotation"),
-        dataset_names=[config.dataset_name],
+        dataset_names=list(config.source_dataset_names or [config.dataset_name]),
         keep_missing_images=True,
-        limit=config.limit,
+        limit=None if config.source_split_manifest else config.limit,
+    )
+
+
+def _load_baseline_heldout_dataset(config: BaselineRunConfig, cfg: dict[str, Any]) -> Any:
+    dataset_name = str(config.heldout_test_dataset)
+    if config.use_normalized_labels:
+        return NormalizedMemeDataset(
+            dataset_root=cfg.get("paths", {}).get("dataset_root", "dataset/source"),
+            annotation_root=cfg.get("paths", {}).get("annotation_root", "dataset/annotation"),
+            normalized_root=cfg.get("paths", {}).get("normalized_root", config.normalized_root),
+            dataset_names=[dataset_name],
+            label_set="full",
+            vocab_path=config.vocab_path,
+            keep_missing_images=True,
+            require_normalized_label=True,
+        )
+    return MemeDataset(
+        dataset_root=cfg.get("paths", {}).get("dataset_root", "dataset/source"),
+        annotation_root=cfg.get("paths", {}).get("annotation_root", "dataset/annotation"),
+        dataset_names=[dataset_name],
+        keep_missing_images=True,
     )
 
 

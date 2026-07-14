@@ -11,6 +11,7 @@ from common import ROOT  # noqa: F401 - importing common also adds the repositor
 from commands.analysis import add_analysis_commands
 from commands.data import add_data_commands
 from commands.report import add_report_commands
+from commands.research import add_research_commands
 from experiments.ablation_configs import ABLATION_MODES, normalize_ablation_name
 from experiments.ablation_runner import run_ablation_experiment, run_fusion_experiment
 from experiments.evaluation import attach_formal_tactic_traces, evaluate_prediction_file, evaluate_tactic_rhetorical_logits_only
@@ -34,6 +35,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    add_research_commands(subparsers, DEFAULT_CONFIG)
 
     train = subparsers.add_parser("train", help="Train/evaluate the full proposed framework.")
     _add_ours_args(train)
@@ -202,7 +205,11 @@ def _add_ours_args(parser: argparse.ArgumentParser) -> None:
 def _add_baseline_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--config", default=DEFAULT_CONFIG)
     parser.add_argument("--dataset", nargs="+", default=["harm_c"])
-    parser.add_argument("--baseline", choices=["image_only_clip", "text_only_encoder", "clip_text_concat"], default="text_only_encoder")
+    parser.add_argument(
+        "--baseline",
+        choices=["image_only_clip", "text_only_encoder", "clip_text_concat", "openclip_classifier"],
+        default="text_only_encoder",
+    )
     parser.add_argument("--seed", nargs="+", type=int, default=[42])
     parser.add_argument("--all-seeds", action="store_true")
     parser.add_argument("--epochs", type=int, default=10)

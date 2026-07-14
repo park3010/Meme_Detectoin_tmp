@@ -1,0 +1,17 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {"label": "Research: Plan", "type": "shell", "command": "conda run -n meme_cikm python scripts/run.py research plan --suite harmeme_to_fhm_smoke", "problemMatcher": []},
+    {"label": "Research: Preflight", "type": "shell", "command": "conda run -n meme_cikm python scripts/run.py research preflight --strict", "problemMatcher": []},
+    {"label": "Research: Smoke Dry Run", "type": "shell", "command": "conda run -n meme_cikm python scripts/run.py research run --suite harmeme_to_fhm_smoke --dry-run --output-root result/research_smoke", "problemMatcher": []},
+    {"label": "Research: Smoke", "type": "shell", "command": "conda run -n meme_cikm python scripts/run.py research run --suite harmeme_to_fhm_smoke --device cpu --limit 20 --output-root result/research_smoke_cpu", "problemMatcher": []},
+    {"label": "Research: Aggregate Results", "type": "shell", "command": "conda run -n meme_cikm python scripts/run.py research aggregate", "problemMatcher": []},
+    {"label": "Research: Update Dashboard", "type": "shell", "command": "conda run -n meme_cikm python scripts/run.py research dashboard", "problemMatcher": []},
+    {"label": "Paper: Export Results", "type": "shell", "command": "conda run -n meme_cikm python scripts/run.py research paper-export", "problemMatcher": []},
+    {"label": "Paper: Build Main", "type": "shell", "command": "make -C latex main", "problemMatcher": ["$gcc"]},
+    {"label": "Paper: Build Supplementary", "type": "shell", "command": "make -C latex supplementary", "problemMatcher": ["$gcc"]},
+    {"label": "Paper: Draft Build", "type": "shell", "command": "make -C latex draft", "problemMatcher": ["$gcc"]},
+    {"label": "Paper: Final Readiness Check", "type": "shell", "command": "make -C latex check-final", "problemMatcher": []},
+    {"label": "Paper: Refresh Results and Build All", "type": "shell", "command": "conda run -n meme_cikm python scripts/run.py research aggregate && conda run -n meme_cikm python scripts/run.py research paper-export && make -C latex draft", "problemMatcher": ["$gcc"]}
+  ]
+}

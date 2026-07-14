@@ -1,0 +1,7 @@
+{
+  "schema_version": "human_evidence_evaluation_v1",
+  "required_columns": ["item_id", "annotator_id", "internal_evidence_relevance", "external_evidence_relevance", "overall_evidence_faithfulness"],
+  "rating_scale": {"minimum": 1, "maximum": 5},
+  "optional_columns": ["notes"],
+  "missing_value_policy": "blank means unrated; zero is invalid"
+}
