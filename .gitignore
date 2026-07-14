@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Environments and credentials
+.env
+.env.*
+!.env.example
+
+# Dataset and model assets
+dataset/
+assets/pretrained/
+*.ckpt
+*.pth
+*.pt
+*.safetensors
+*.onnx
+
+assets/pretrained/**
+!assets/pretrained/**/
+!assets/pretrained/**/.gitkeep
+!assets/pretrained/**/asset_manifest.json
+
+# Experiment outputs
+result/
+
+# LaTeX build outputs
+latex/build/
+latex/*.aux
+latex/*.bbl
+latex/*.blg
+latex/*.cut
+latex/*.fdb_latexmk
+latex/*.fls
+latex/*.log
+latex/*.out
+latex/*.synctex.gz
+latex/*.toc
