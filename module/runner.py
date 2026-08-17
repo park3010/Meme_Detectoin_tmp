@@ -10,6 +10,7 @@ from torch import nn
 
 from dataset import MemeDataset
 from experiments.progress import ProgressConfig, progress_iter
+from experiments.retrieval_corpus import resolve_retrieval_runtime
 from module.evidence_fusion_reasoning import EvidenceFusionReasoning
 from module.external_knowledge_acquisition import ExternalKnowledgeAcquisition, QueryBundle, StageBMetadata, StageBOutput
 from module.internal_evidence_extractor import InternalEvidenceExtractor
@@ -62,6 +63,7 @@ class HarmfulMemePipeline(nn.Module):
         text_cfg = backbone_cfg.get("text", {})
         detector_cfg = backbone_cfg.get("detector", {})
         retriever_cfg = backbone_cfg.get("retriever", {})
+        retrieval_cfg = config.get("retrieval", {}) or {}
         stage_a_cfg = _stage_config(config, "stage_a")
         stage_c_cfg = _stage_config(config, "stage_c")
         stage_d_cfg = _stage_config(config, "stage_d")
@@ -88,9 +90,22 @@ class HarmfulMemePipeline(nn.Module):
             text_allow_download=bool(text_cfg.get("allow_download", False)),
             text_asset_mode=text_cfg.get("asset_mode"),
         )
+        retrieval_disabled = bool(runtime_cfg.get("disable_retrieval", False))
+        self.retrieval_runtime = resolve_retrieval_runtime(
+            config,
+            disabled=retrieval_disabled,
+            require_paper_eligible=bool(retrieval_cfg.get("require_paper_eligible", True)),
+        )
+        corpus_paths = list(self.retrieval_runtime.get("corpus_paths", []) or [])
+        if self.retrieval_runtime.get("retrieval_profile") == "unverified_legacy_config":
+            corpus_paths = list(paths_cfg.get("retrieval_corpus_paths", []) or [])
+        index_root = None
+        if self.retrieval_runtime.get("root"):
+            index_root = str(Path(str(self.retrieval_runtime["root"])) / "index")
+        self.retrieval_query_cache_path: str | None = None
         self.stage_b = ExternalKnowledgeAcquisition(
             hidden_dim=hidden_dim,
-            corpus_paths=list(paths_cfg.get("retrieval_corpus_paths", []) or []),
+            corpus_paths=corpus_paths,
             top_k=int(model_cfg.get("knowledge_top_k", 8)),
             fallback_candidates=bool(retriever_cfg.get("fallback_candidates", True)),
             prefer_transformers=bool(text_cfg.get("prefer_transformers", False)),
@@ -105,6 +120,7 @@ class HarmfulMemePipeline(nn.Module):
             max_documents=retriever_cfg.get("max_documents"),
             use_cross_encoder_rerank=bool(retriever_cfg.get("use_cross_encoder_rerank", True)),
             device=device,
+            index_root=index_root,
         )
         self.stage_c = KnowledgeRelevanceFilterVerifier(
             hidden_dim=hidden_dim,
@@ -168,6 +184,12 @@ class HarmfulMemePipeline(nn.Module):
         if _flag(ablation, "label_only_no_evidence"):
             _label_only(outputs["stage_e"])
         return outputs
+
+    def configure_retrieval_query_cache(self, root: str | Path | None) -> None:
+        """Route query-time cache records to a run output, never the corpus root."""
+
+        self.retrieval_query_cache_path = str(root) if root else None
+        self.stage_b.retriever.adapter.set_query_cache(root)
 
 
 def _flag(ablation: Any | None, *names: str) -> bool:

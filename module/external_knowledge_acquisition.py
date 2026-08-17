@@ -245,19 +245,37 @@ class HybridRetriever:
         top_k: int = 8,
         max_documents: int | None = None,
         use_cross_encoder_rerank: bool = True,
+        index_root: str | Path | None = None,
+        query_cache_root: str | Path | None = None,
     ) -> None:
-        self.adapter = LocalRetrieverAdapter(corpus_paths=corpus_paths, fallback_candidates=fallback_candidates, max_documents=max_documents)
+        self.adapter = LocalRetrieverAdapter(
+            corpus_paths=corpus_paths,
+            fallback_candidates=fallback_candidates,
+            max_documents=max_documents,
+            index_root=index_root,
+            query_cache_root=query_cache_root,
+        )
         self.top_k = top_k
         self.cross_encoder = CrossEncoderAdapter() if use_cross_encoder_rerank else None
 
-    def retrieve(self, query_bundle: QueryBundle) -> list[KnowledgeCandidate]:
+    def retrieve(
+        self,
+        query_bundle: QueryBundle,
+        *,
+        sample_id: str = "",
+        dataset_name: str = "",
+    ) -> list[KnowledgeCandidate]:
         """Retrieve and deduplicate candidates across query types."""
 
         candidates: list[KnowledgeCandidate] = []
         seen_texts: set[str] = set()
         for query in query_bundle.all_queries():
             per_query_k = max(2, self.top_k // 2)
-            for document in self.adapter.search(query, top_k=per_query_k):
+            for document in self.adapter.search(
+                query,
+                top_k=per_query_k,
+                query_context={"sample_id": sample_id, "dataset_name": dataset_name},
+            ):
                 key = document.text.lower()[:240]
                 if key in seen_texts:
                     continue
@@ -355,6 +373,8 @@ class ExternalKnowledgeAcquisition(nn.Module):
         max_documents: int | None = None,
         use_cross_encoder_rerank: bool = True,
         device: str = "cpu",
+        index_root: str | Path | None = None,
+        query_cache_root: str | Path | None = None,
     ) -> None:
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -366,6 +386,8 @@ class ExternalKnowledgeAcquisition(nn.Module):
             top_k=top_k,
             max_documents=max_documents,
             use_cross_encoder_rerank=use_cross_encoder_rerank,
+            index_root=index_root,
+            query_cache_root=query_cache_root,
         )
         self.generator = ContextAugmentationGenerator(max_items=3)
         self.text_encoder = TextEncoderWrapper(
@@ -398,7 +420,11 @@ class ExternalKnowledgeAcquisition(nn.Module):
         _augment_queries_with_aliases(bundle, linked_entities)
         _augment_queries_with_evidence(bundle, stage_a, evidence_surfaces, linked_entities)
         query_records = _query_records(bundle, surface_records, linked_entities)
-        retrieved = self.retriever.retrieve(bundle)
+        retrieved = self.retriever.retrieve(
+            bundle,
+            sample_id=stage_a.sample_id,
+            dataset_name=stage_a.dataset_name,
+        )
         hypotheses, generated = self.generator.generate(ocr_text, retrieved, sample_id=stage_a.sample_id)
 
         candidates = _dedupe_candidates([*retrieved, *generated])[: self.top_k]

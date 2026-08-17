@@ -17,6 +17,13 @@ from experiments.research_results import aggregate_research_results
 from experiments.research_error_analysis import export_research_error_cases
 from experiments.research_human_eval import agreement_report, export_human_evaluation, import_human_ratings, validate_human_ratings
 from experiments.paper_export import check_paper, export_research_paper_artifacts
+from experiments.retrieval_corpus import (
+    CANONICAL_PROFILE,
+    DEFAULT_OUTPUT_ROOT,
+    audit_retrieval_profile,
+    build_retrieval_corpus,
+    retrieval_status,
+)
 
 
 def add_research_commands(subparsers: argparse._SubParsersAction, default_config: str) -> None:
@@ -33,6 +40,36 @@ def add_research_commands(subparsers: argparse._SubParsersAction, default_config
     preflight.add_argument("--strict", action=argparse.BooleanOptionalAction, default=True)
     preflight.add_argument("--force-regenerate-split", action="store_true")
     preflight.set_defaults(func=_cmd_preflight)
+
+    retrieval_build = commands.add_parser(
+        "retrieval-build", help="Build the immutable HarMeme-train retrieval corpus offline."
+    )
+    retrieval_build.add_argument("--registry", default="configs/experiment_registry.yaml")
+    retrieval_build.add_argument("--config", default=default_config)
+    retrieval_build.add_argument("--profile", default=CANONICAL_PROFILE)
+    retrieval_build.add_argument("--source-partition", default="train")
+    retrieval_build.add_argument("--output-root", default=DEFAULT_OUTPUT_ROOT)
+    retrieval_build.add_argument("--offline", action=argparse.BooleanOptionalAction, default=True)
+    retrieval_build.add_argument("--force", action="store_true")
+    retrieval_build.add_argument("--limit", type=int, default=None, help="Test/smoke builds only.")
+    retrieval_build.set_defaults(func=_cmd_retrieval_build)
+
+    retrieval_audit = commands.add_parser(
+        "retrieval-audit", help="Verify retrieval provenance, corpus, and index hashes."
+    )
+    retrieval_audit.add_argument("--registry", default="configs/experiment_registry.yaml")
+    retrieval_audit.add_argument("--config", default=default_config)
+    retrieval_audit.add_argument("--profile", default=CANONICAL_PROFILE)
+    retrieval_audit.add_argument("--strict", action=argparse.BooleanOptionalAction, default=True)
+    retrieval_audit.set_defaults(func=_cmd_retrieval_audit)
+
+    retrieval_status_parser = commands.add_parser(
+        "retrieval-status", help="Show the configured retrieval profile state."
+    )
+    retrieval_status_parser.add_argument("--registry", default="configs/experiment_registry.yaml")
+    retrieval_status_parser.add_argument("--config", default=default_config)
+    retrieval_status_parser.add_argument("--profile", default=CANONICAL_PROFILE)
+    retrieval_status_parser.set_defaults(func=_cmd_retrieval_status)
 
     for name in ("run", "resume"):
         runner = commands.add_parser(name, help=f"{name.title()} a registered suite; planning is the default.")
@@ -147,6 +184,43 @@ def _cmd_preflight(args: argparse.Namespace) -> None:
     print_json(result)
     if args.strict and not result["passed"]:
         raise SystemExit(2)
+
+
+def _cmd_retrieval_build(args: argparse.Namespace) -> None:
+    print_json(
+        build_retrieval_corpus(
+            registry_path=args.registry,
+            config_path=args.config,
+            profile=args.profile,
+            source_partition=args.source_partition,
+            output_root=args.output_root,
+            offline=args.offline,
+            force=args.force,
+            limit=args.limit,
+        )
+    )
+
+
+def _cmd_retrieval_audit(args: argparse.Namespace) -> None:
+    result = audit_retrieval_profile(
+        registry_path=args.registry,
+        config_path=args.config,
+        profile=args.profile,
+        strict=args.strict,
+    )
+    print_json(result)
+    if args.strict and not result["passed"]:
+        raise SystemExit(2)
+
+
+def _cmd_retrieval_status(args: argparse.Namespace) -> None:
+    print_json(
+        retrieval_status(
+            registry_path=args.registry,
+            config_path=args.config,
+            profile=args.profile,
+        )
+    )
 
 
 def _cmd_run(args: argparse.Namespace) -> None:

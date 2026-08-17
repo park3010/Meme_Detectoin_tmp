@@ -25,6 +25,7 @@ from experiments.progress import ProgressConfig, progress_iter, progress_write, 
 from experiments.pretrained_assets import build_asset_provenance
 from experiments.run_manifest import build_data_snapshot, build_run_manifest, collect_backbone_state, current_command, sha256_file, write_run_manifest
 from experiments.research_protocol import load_manifest as load_research_manifest, select_manifest_samples, source_tree_sha256
+from experiments.retrieval_corpus import retrieval_run_manifest_fields
 from experiments.splits import build_splits_for_dataset, label_to_int, load_split_file, save_splits, split_samples
 from experiments.tactic_decoding import (
     extract_gold_tactic_labels,
@@ -140,8 +141,12 @@ def run_ours_experiment(config: OursRunConfig) -> dict[str, Any]:
 
     device = _resolve_training_device(config.device)
     cfg.setdefault("runtime", {})["device"] = str(device)
-    pipeline = HarmfulMemePipeline(cfg).to(device)
     ablation_runtime = runtime_config_for_ablation(config.ablation_name)
+    if ablation_runtime and ablation_runtime.disable_retrieval:
+        cfg.setdefault("runtime", {})["disable_retrieval"] = True
+    output_dir = Path(config.output_root) / "predictions" / config.dataset_name / config.model_name / str(config.seed)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    pipeline = HarmfulMemePipeline(cfg).to(device)
     if config.print_components:
         from module.runner import print_pipeline_components
 
@@ -149,8 +154,6 @@ def run_ours_experiment(config: OursRunConfig) -> dict[str, Any]:
     configure_trainable_parameters(pipeline, config)
     optimizer = torch.optim.AdamW([param for param in pipeline.parameters() if param.requires_grad], lr=config.lr)
     loss_fn = StructuredMemeLoss()
-    output_dir = Path(config.output_root) / "predictions" / config.dataset_name / config.model_name / str(config.seed)
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     best_state: dict[str, torch.Tensor] | None = None
     stopper = EarlyStopping(config.patience, config.min_delta, config.early_stop_mode)
@@ -334,6 +337,8 @@ def run_ours_experiment(config: OursRunConfig) -> dict[str, Any]:
     save_training_log(output_dir, training_log)
     _, validation_predictions = evaluate_ours_pipeline(pipeline, validation_samples, config, device=device, desc="valid final")
     write_jsonl(output_dir / "validation_predictions.jsonl", validation_predictions)
+    if materialized.get("test") and pipeline.retrieval_runtime.get("enabled"):
+        pipeline.configure_retrieval_query_cache(output_dir / "retrieval_queries")
     metrics, predictions = evaluate_ours_pipeline(pipeline, materialized.get("test", []), config, device=device, desc="test")
     metrics, predictions, validation_predictions = finalize_formal_tactic_evaluation(
         config,
@@ -1153,6 +1158,10 @@ def _ours_manifest(config: OursRunConfig, pipeline: HarmfulMemePipeline) -> dict
             "label_vocab_sha256": data_snapshot.get("label_vocab_sha256"),
             "normalized_label_snapshot_sha256": data_snapshot.get("normalized_label_snapshot_sha256"),
             "code_commit_or_source_tree_sha256": source_tree_sha256(),
+            **retrieval_run_manifest_fields(
+                pipeline.retrieval_runtime,
+                pipeline.retrieval_query_cache_path,
+            ),
             **_research_manifest_fields(config),
         },
     )

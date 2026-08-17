@@ -307,10 +307,14 @@ def _result_macros(rows: list[dict[str, str]]) -> list[str]:
     ours_value = _number(ours.get("mean") if ours else None, None)
     best_value = _number(best.get("mean") if best else None, None)
     improvement = ours_value - best_value if ours_value is not None and best_value is not None else None
+    missing = "\\texttt{TBD}"
+    ours_macro_f1 = f"{ours_value:.3f}" if ours_value is not None else missing
+    best_baseline = _tex(best.get("model")) if best else missing
+    improvement_text = f"{improvement:.3f}" if improvement is not None else missing
     return [
-        f"\\providecommand{{\\OursFHMMacroFOne}}{{{f'{ours_value:.3f}' if ours_value is not None else '\\texttt{TBD}'}}}",
-        f"\\providecommand{{\\BestBaselineName}}{{{_tex(best.get('model')) if best else '\\texttt{TBD}'}}}",
-        f"\\providecommand{{\\OursImprovement}}{{{f'{improvement:.3f}' if improvement is not None else '\\texttt{TBD}'}}}",
+        f"\\providecommand{{\\OursFHMMacroFOne}}{{{ours_macro_f1}}}",
+        f"\\providecommand{{\\BestBaselineName}}{{{best_baseline}}}",
+        f"\\providecommand{{\\OursImprovement}}{{{improvement_text}}}",
     ]
 
 

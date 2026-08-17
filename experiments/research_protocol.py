@@ -230,17 +230,52 @@ def audit_fhm_leakage(
     _record_check(errors, not overlap, "fhm_source_overlap", f"FHM/source overlap count: {len(overlap)}")
 
     cfg = load_yaml(config_path)
-    retrieval_paths = list(cfg.get("paths", {}).get("retrieval_corpus_paths", []) or [])
     retrieval_checks: list[dict[str, Any]] = []
-    for raw_path in retrieval_paths:
-        path = Path(raw_path)
-        check = _audit_retrieval_path(path, fhm_keys, source_manifest.get("content_sha256"))
-        retrieval_checks.append(check)
-        if not check["passed"]:
-            for violation in check.get("violations", []) or [
-                {"code": "retrieval_policy_failure", "message": check["reason"]}
-            ]:
-                errors.append({**violation, "path": str(path)})
+    retrieval_cfg = cfg.get("retrieval", {}) or {}
+    active_profile = str(retrieval_cfg.get("active_profile") or "")
+    if active_profile:
+        # Local import avoids a module cycle: the canonical retrieval builder
+        # uses the stable hashing helpers defined in this module.
+        from experiments.retrieval_corpus import (
+            CANONICAL_PROFILE,
+            audit_retrieval_root,
+            retrieval_profile_config,
+        )
+
+        try:
+            profile_cfg = retrieval_profile_config(cfg, active_profile)
+            source_path = profile_cfg.get("source_split_manifest") or DEFAULT_SOURCE_MANIFEST
+            canonical = audit_retrieval_root(
+                profile_cfg.get("corpus_root", ""),
+                expected_profile=active_profile,
+                expected_source_manifest=source_path,
+                strict=True,
+            )
+            retrieval_checks.append(canonical)
+            if active_profile != CANONICAL_PROFILE:
+                errors.append(
+                    {
+                        "code": "retrieval_legacy_profile_selected",
+                        "message": "Strict paper protocol requires harmeme_train_v1.",
+                    }
+                )
+            for violation in canonical.get("errors", []):
+                errors.append(dict(violation))
+        except Exception as exc:
+            code = getattr(exc, "code", "retrieval_manifest_invalid")
+            errors.append({"code": code, "message": str(exc)})
+    else:
+        # Backward-compatible audit path for isolated legacy unit configs.
+        retrieval_paths = list(cfg.get("paths", {}).get("retrieval_corpus_paths", []) or [])
+        for raw_path in retrieval_paths:
+            path = Path(raw_path)
+            check = _audit_retrieval_path(path, fhm_keys, source_manifest.get("content_sha256"))
+            retrieval_checks.append(check)
+            if not check["passed"]:
+                for violation in check.get("violations", []) or [
+                    {"code": "retrieval_policy_failure", "message": check["reason"]}
+                ]:
+                    errors.append({**violation, "path": str(path)})
 
     paper_suites = (registry or {}).get("suites", {}) if isinstance(registry, dict) else {}
     memotion_suites = []
@@ -250,11 +285,19 @@ def audit_fhm_leakage(
             memotion_suites.append(name)
     _record_check(errors, not memotion_suites, "memotion_in_paper_suite", f"Paper suites containing Memotion: {memotion_suites}")
 
+    retrieval_passed = bool(retrieval_checks) and all(item["passed"] for item in retrieval_checks)
+    canonical_checks = retrieval_checks[0].get("checks", {}) if retrieval_checks else {}
     checks = {
         "fhm_absent_from_source_train": not bool(overlap),
         "fhm_absent_from_source_validation": not bool(overlap),
-        "fhm_absent_from_retrieval_databases": all(item["passed"] for item in retrieval_checks),
-        "retrieval_index_is_harmeme_train_only": all(item["passed"] for item in retrieval_checks),
+        "fhm_absent_from_retrieval_databases": bool(canonical_checks.get("fhm_absent_from_retrieval_databases", retrieval_passed)),
+        "memotion_absent_from_retrieval_databases": bool(canonical_checks.get("memotion_absent_from_retrieval_databases", retrieval_passed)),
+        "source_validation_absent_from_retrieval_databases": bool(canonical_checks.get("source_validation_absent_from_retrieval_databases", retrieval_passed)),
+        "retrieval_index_is_harmeme_train_only": bool(canonical_checks.get("retrieval_index_is_harmeme_train_only", retrieval_passed)),
+        "retrieval_split_hash_verified": bool(canonical_checks.get("retrieval_split_hash_verified", retrieval_passed)),
+        "retrieval_corpus_hash_verified": bool(canonical_checks.get("retrieval_corpus_hash_verified", retrieval_passed)),
+        "retrieval_index_hash_verified": bool(canonical_checks.get("retrieval_index_hash_verified", retrieval_passed)),
+        "retrieval_profile_is_paper_eligible": bool(canonical_checks.get("retrieval_profile_is_paper_eligible", retrieval_passed)),
         "threshold_selection_source": "HarMeme validation only",
         "early_stopping_source": "HarMeme validation only",
         "few_shot_policy": "HarMeme only",

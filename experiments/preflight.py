@@ -386,7 +386,34 @@ def inspect_dataset_metric_eligibility(
 def inspect_retrieval_corpus_readiness(config: dict[str, Any], profile: dict[str, Any], issues: list[PreflightIssue]) -> dict[str, Any]:
     """Audit configured retrieval corpora and retrieval provenance policy."""
 
-    paths = list(config.get("paths", {}).get("retrieval_corpus_paths", []) or [])
+    retrieval_cfg = config.get("retrieval", {}) or {}
+    active_profile = str(retrieval_cfg.get("active_profile") or "")
+    canonical_audit: dict[str, Any] | None = None
+    if active_profile:
+        from experiments.retrieval_corpus import audit_retrieval_root, retrieval_profile_config
+
+        try:
+            active_cfg = retrieval_profile_config(config, active_profile)
+            canonical_audit = audit_retrieval_root(
+                active_cfg.get("corpus_root", ""),
+                expected_profile=active_profile,
+                expected_source_manifest=active_cfg.get("source_split_manifest"),
+                strict=bool(profile.get("require_retrieval_corpus", False)),
+            )
+            corpus_path = Path(str(active_cfg.get("corpus_root", ""))) / str(
+                (canonical_audit.get("manifest") or {}).get("corpus_file", "corpus/corpus_texts.jsonl")
+            )
+            paths = [str(corpus_path)]
+        except Exception as exc:
+            canonical_audit = {
+                "passed": False,
+                "status": "fail",
+                "errors": [{"code": getattr(exc, "code", "retrieval_manifest_invalid"), "message": str(exc)}],
+                "checks": {},
+            }
+            paths = list(config.get("paths", {}).get("retrieval_corpus_paths", []) or [])
+    else:
+        paths = list(config.get("paths", {}).get("retrieval_corpus_paths", []) or [])
     report_paths = []
     usable_count = 0
     for raw_path in paths:
@@ -400,6 +427,8 @@ def inspect_retrieval_corpus_readiness(config: dict[str, Any], profile: dict[str
     report = {
         "paths": report_paths,
         "usable_corpus_count": usable_count,
+        "active_profile": active_profile or None,
+        "profile_audit": canonical_audit,
         "policy": {
             "retriever_backend": retriever_cfg.get("backend", "local"),
             "max_documents": retriever_cfg.get("max_documents"),
@@ -411,8 +440,18 @@ def inspect_retrieval_corpus_readiness(config: dict[str, Any], profile: dict[str
             "semantic_note": "fallback candidate != retrieved external knowledge; generated hypothesis != retrieved external knowledge",
         },
     }
-    if profile.get("require_retrieval_corpus", False) and usable_count == 0:
-        _issue(issues, "retrieval_corpus_unusable", "error", "No configured retrieval corpus is present and structurally usable.", {"paths": paths})
+    if profile.get("require_retrieval_corpus", False):
+        if usable_count == 0:
+            _issue(issues, "retrieval_corpus_unusable", "error", "No configured retrieval corpus is present and structurally usable.", {"paths": paths})
+        if canonical_audit is not None and not canonical_audit.get("passed"):
+            for error in canonical_audit.get("errors", []):
+                _issue(
+                    issues,
+                    str(error.get("code", "retrieval_manifest_invalid")),
+                    "error",
+                    str(error.get("message", "Retrieval profile audit failed.")),
+                    {"profile": active_profile},
+                )
     if retriever_cfg.get("fallback_candidates", True):
         _issue(issues, "retrieval_fallback_enabled", "warning", "Fallback candidates are enabled; provenance must not treat them as retrieved external knowledge.", {})
     return report
@@ -790,7 +829,7 @@ def _audit_corpus_path(path: Path) -> dict[str, Any]:
         "exists": exists,
         "is_file": path.is_file() if exists else False,
         "size_bytes": path.stat().st_size if exists and path.is_file() else 0,
-        "sha256": sha256_file(path),
+        "sha256": sha256_file(path) if exists and path.is_file() else None,
         "line_count": line_count,
         "parseable_record_count": parseable,
         "empty_text_record_count": empty_text,

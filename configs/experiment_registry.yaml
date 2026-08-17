@@ -11,6 +11,7 @@ protocol:
   label_set: clean
   source_split_manifest: result/splits/harmeme/source_split_seed_42.json
   heldout_test_manifest: result/splits/fhm/heldout_test_manifest.json
+  retrieval_profile: harmeme_train_v1
   fhm_structured_annotation_provenance: agent_silver_structured_evaluation
   model_seeds:
     smoke: [42]
@@ -18,7 +19,7 @@ protocol:
     five_seed: [42, 52, 123, 777, 2026]
 
 knowledge_sources:
-  wikipedia_wikidata: {enabled: true, status: blocked_dependency, reason: current corpus provenance includes FHM}
+  wikipedia_wikidata: {enabled: true, status: ready, reason: canonical corpus is replayed from immutable HarMeme-train query caches}
   conceptnet: {enabled: false, status: blocked_dependency, reason: source unavailable locally}
   know_your_meme: {enabled: false, status: blocked_dependency, reason: source unavailable locally}
   news_event: {enabled: false, status: blocked_dependency, reason: source unavailable locally}

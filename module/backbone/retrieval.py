@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -43,12 +45,24 @@ class LocalRetrieverAdapter:
         fallback_candidates: bool = True,
         dense_dim: int = 256,
         max_documents: int | None = None,
+        index_root: str | Path | None = None,
+        query_cache_root: str | Path | None = None,
     ) -> None:
         self.dense_dim = dense_dim
         self.documents = self._load_corpus(corpus_paths or [], max_documents=max_documents)
         self.avg_doc_len = sum(len(doc.text.split()) for doc in self.documents) / max(1, len(self.documents))
-        self.document_embeddings = [hashed_vector(document.text, dim=dense_dim) for document in self.documents]
+        self.index_root = Path(index_root) if index_root else None
+        indexed_embeddings = self._load_dense_index()
+        if self.index_root is not None and self.documents and indexed_embeddings is None:
+            raise RuntimeError(f"Verified dense retrieval index could not be loaded from {self.index_root}")
+        self.document_embeddings = indexed_embeddings or [
+            hashed_vector(document.text, dim=dense_dim) for document in self.documents
+        ]
+        self.sparse_index_loaded = self._verify_sparse_index()
+        if self.index_root is not None and self.documents and not self.sparse_index_loaded:
+            raise RuntimeError(f"Verified sparse retrieval index could not be loaded from {self.index_root}")
         self.fallback_candidates = fallback_candidates
+        self.query_cache_root = Path(query_cache_root) if query_cache_root else None
 
     def search_sparse(self, query: str, top_k: int = 8) -> list[KnowledgeDocument]:
         """Return sparse lexical/BM25-style matches."""
@@ -74,7 +88,13 @@ class LocalRetrieverAdapter:
         scored.sort(key=lambda item: item[0], reverse=True)
         return [self._with_score(document, score, "dense_score") for score, document in scored[:top_k] if score > 0]
 
-    def search(self, query: str, top_k: int = 8) -> list[KnowledgeDocument]:
+    def search(
+        self,
+        query: str,
+        top_k: int = 8,
+        *,
+        query_context: dict[str, str] | None = None,
+    ) -> list[KnowledgeDocument]:
         """Return hybrid sparse+dense ranked documents for the query."""
 
         sparse = self.search_sparse(query, top_k=max(top_k * 2, 4))
@@ -94,9 +114,15 @@ class LocalRetrieverAdapter:
             metadata["fusion_score"] = fusion_score
             metadata["retrieval_score"] = max(float(sparse_score), float(dense_score), float(fusion_score))
             results.append(KnowledgeDocument(document.doc_id, document.text, document.source, metadata))
-        if results or not self.fallback_candidates:
-            return results
-        return self._fallback_results(query, top_k)
+        if not results and self.fallback_candidates:
+            results = self._fallback_results(query, top_k)
+        self._write_query_cache(query, results, query_context=query_context)
+        return results
+
+    def set_query_cache(self, root: str | Path | None) -> None:
+        """Set a run-scoped query-result cache; canonical indexes stay read-only."""
+
+        self.query_cache_root = Path(root) if root else None
 
     def _load_corpus(self, corpus_paths: list[str | Path], max_documents: int | None = None) -> list[KnowledgeDocument]:
         documents: list[KnowledgeDocument] = []
@@ -119,9 +145,9 @@ class LocalRetrieverAdapter:
                     if text:
                         documents.append(
                             KnowledgeDocument(
-                                doc_id=normalize_text(record.get("id") or record.get("doc_id") or record.get("kid") or f"{path.stem}:{idx}"),
+                                doc_id=normalize_text(record.get("document_id") or record.get("id") or record.get("doc_id") or record.get("kid") or f"{path.stem}:{idx}"),
                                 text=text,
-                                source=normalize_text(record.get("source") or str(path)),
+                                source=normalize_text(record.get("source_name") or record.get("source") or str(path)),
                                 metadata={"raw": record, "path": str(path), "title": record.get("title"), "timestamp": record.get("rev_timestamp")},
                             )
                         )
@@ -145,6 +171,75 @@ class LocalRetrieverAdapter:
             else:
                 paths.append(path)
         return paths
+
+    def _load_dense_index(self) -> list[torch.Tensor] | None:
+        if self.index_root is None or not self.documents:
+            return None
+        dense_root = self.index_root / "dense"
+        ids_path = dense_root / "document_ids.jsonl"
+        vectors_path = dense_root / "embeddings.f32"
+        metadata_path = dense_root / "metadata.json"
+        if not ids_path.is_file() or not vectors_path.is_file() or not metadata_path.is_file():
+            return None
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            ids = [str(row.get("document_id", "")) for row in read_jsonl(ids_path)]
+            expected_ids = [document.doc_id for document in self.documents]
+            if ids[: len(expected_ids)] != expected_ids or int(metadata.get("dimension", -1)) != self.dense_dim:
+                return None
+            data = vectors_path.read_bytes()
+            expected_bytes = len(ids) * self.dense_dim * 4
+            if len(data) != expected_bytes:
+                return None
+            values = struct.unpack(f"<{len(ids) * self.dense_dim}f", data)
+            matrix = torch.tensor(values, dtype=torch.float32).reshape(len(ids), self.dense_dim)
+            return [row for row in matrix[: len(expected_ids)]]
+        except (OSError, ValueError, json.JSONDecodeError, struct.error):
+            return None
+
+    def _verify_sparse_index(self) -> bool:
+        if self.index_root is None:
+            return False
+        sparse_root = self.index_root / "sparse"
+        metadata_path = sparse_root / "metadata.json"
+        terms_path = sparse_root / "document_terms.jsonl"
+        if not metadata_path.is_file() or not terms_path.is_file():
+            return False
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            return int(metadata.get("document_count", -1)) >= len(self.documents)
+        except (OSError, ValueError, json.JSONDecodeError):
+            return False
+
+    def _write_query_cache(
+        self,
+        query: str,
+        results: list[KnowledgeDocument],
+        *,
+        query_context: dict[str, str] | None,
+    ) -> None:
+        if self.query_cache_root is None or not query_context:
+            return
+        dataset_name = normalize_text(query_context.get("dataset_name", "unknown")) or "unknown"
+        role = "fhm" if dataset_name in {"facebook", "fhm"} else dataset_name
+        cache_path = self.query_cache_root / role / "queries.jsonl"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        record = {
+            "dataset_name": dataset_name,
+            "sample_id": normalize_text(query_context.get("sample_id", "")),
+            "query": query,
+            "results": [
+                {
+                    "document_id": document.doc_id,
+                    "source": document.source,
+                    "retrieval_score": float(document.metadata.get("retrieval_score", 0.0)),
+                }
+                for document in results
+            ],
+            "contains_labels": False,
+        }
+        with cache_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
 
     def _with_score(self, document: KnowledgeDocument, score: float, score_key: str) -> KnowledgeDocument:
         metadata = dict(document.metadata)

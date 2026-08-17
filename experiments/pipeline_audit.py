@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -274,6 +275,69 @@ def audit_paper_protocol_manifest(
     assets = manifest.get("pretrained_asset_hashes", {}) or {}
     if not isinstance(assets, dict) or not any(assets.values()):
         missing.append("pretrained_asset_hashes.nonempty")
+    component_state = manifest.get("component_state", {}) or {}
+    run_kind = str(manifest.get("run_kind", ""))
+    retrieval_required = run_kind == "ours_full" or (
+        run_kind == "ablation" and component_state.get("stage_b_retrieval_enabled", True)
+    )
+    retrieval_fields = {
+        "retrieval_profile",
+        "retrieval_corpus_manifest_path",
+        "retrieval_corpus_manifest_sha256",
+        "retrieval_corpus_sha256",
+        "retrieval_index_manifest_path",
+        "retrieval_index_manifest_sha256",
+        "retrieval_sparse_index_sha256",
+        "retrieval_dense_index_sha256",
+        "retrieval_corpus_role",
+        "retrieval_paper_eligible",
+        "retrieval_read_only",
+        "retrieval_query_cache_path",
+    }
+    if retrieval_required:
+        missing.extend(field for field in retrieval_fields if manifest.get(field) in {None, ""})
+        if manifest.get("retrieval_profile") != "harmeme_train_v1":
+            missing.append("retrieval_profile=harmeme_train_v1")
+        if manifest.get("retrieval_corpus_role") != "harmeme_train_conditioned":
+            missing.append("retrieval_corpus_role=harmeme_train_conditioned")
+        if manifest.get("retrieval_paper_eligible") is not True:
+            missing.append("retrieval_paper_eligible=true")
+        if manifest.get("retrieval_read_only") is not True:
+            missing.append("retrieval_read_only=true")
+        corpus_manifest_path = Path(str(manifest.get("retrieval_corpus_manifest_path", "")))
+        index_manifest_path = Path(str(manifest.get("retrieval_index_manifest_path", "")))
+        if not corpus_manifest_path.is_file() or _file_sha256(corpus_manifest_path) != manifest.get("retrieval_corpus_manifest_sha256"):
+            missing.append("retrieval_corpus_manifest_exact_hash")
+        if not index_manifest_path.is_file() or _file_sha256(index_manifest_path) != manifest.get("retrieval_index_manifest_sha256"):
+            missing.append("retrieval_index_manifest_exact_hash")
+        if corpus_manifest_path.is_file():
+            retrieval_manifest = json.loads(corpus_manifest_path.read_text(encoding="utf-8"))
+            if retrieval_manifest.get("corpus_sha256") != manifest.get("retrieval_corpus_sha256"):
+                missing.append("retrieval_corpus_exact_hash")
+            from experiments.retrieval_corpus import audit_retrieval_root
+
+            live_audit = audit_retrieval_root(
+                corpus_manifest_path.parent,
+                expected_profile=str(manifest.get("retrieval_profile")),
+                expected_source_manifest=retrieval_manifest.get("source_split_manifest_path"),
+                strict=True,
+            )
+            if not live_audit.get("passed"):
+                missing.append("retrieval_live_corpus_and_index_audit")
+        if index_manifest_path.is_file():
+            index_manifest = json.loads(index_manifest_path.read_text(encoding="utf-8"))
+            if index_manifest.get("sparse_index_sha256") != manifest.get("retrieval_sparse_index_sha256"):
+                missing.append("retrieval_sparse_index_exact_hash")
+            if index_manifest.get("dense_index_sha256") != manifest.get("retrieval_dense_index_sha256"):
+                missing.append("retrieval_dense_index_exact_hash")
+        query_cache_path = Path(str(manifest.get("retrieval_query_cache_path", "")))
+        if corpus_manifest_path.is_file() and query_cache_path:
+            try:
+                query_cache_path.resolve().relative_to(corpus_manifest_path.parent.resolve())
+            except ValueError:
+                pass
+            else:
+                missing.append("retrieval_query_cache_outside_canonical_root")
     if missing:
         _issue(
             result,
@@ -281,7 +345,12 @@ def audit_paper_protocol_manifest(
             strict=strict,
             critical=True,
         )
-    return {"required": True, "passed": not missing, "missing_fields": sorted(set(missing))}
+    return {
+        "required": True,
+        "retrieval_required": retrieval_required,
+        "passed": not missing,
+        "missing_fields": sorted(set(missing)),
+    }
 
 
 def discover_artifacts(
@@ -1125,3 +1194,11 @@ def _first_dict(values: list[Any]) -> dict[str, Any]:
 
 def _display_list(values: list[Any]) -> str:
     return ", ".join(str(value) for value in values) if values else "none"
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
