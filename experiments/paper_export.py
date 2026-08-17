@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import re
+import tempfile
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +47,7 @@ def export_research_paper_artifacts(*, output_root: str = "result", latex_root: 
     (tables / "supp_per_dataset.tex").write_text(_dataset_table(train_count, valid_count, test_count), encoding="utf-8")
     summaries = _read_csv(result_root / "aggregates" / "results_mean_std.csv")
     statuses = _read_csv(result_root / "aggregates" / "experiment_status.csv")
+    registry = load_experiment_registry()
     result_macros = _result_macros(summaries)
     macros[5:8] = result_macros
     (latex / "generated" / "result_macros.tex").write_text("\n".join(macros) + "\n", encoding="utf-8")
@@ -53,8 +57,29 @@ def export_research_paper_artifacts(*, output_root: str = "result", latex_root: 
     (tables / "supp_per_seed.tex").write_text(_per_seed_status_table(statuses), encoding="utf-8")
     (tables / "supp_coverage.tex").write_text(_coverage_table(_read_csv(result_root / "aggregates" / "coverage_results.csv")), encoding="utf-8")
     (tables / "supp_external_baselines.tex").write_text(_external_table(_read_csv(result_root / "aggregates" / "literature_reported_results.csv")), encoding="utf-8")
+    (tables / "supp_knowledge_usage.tex").write_text(
+        _registry_group_table(registry, "knowledge_comparison", "Knowledge mode"), encoding="utf-8"
+    )
+    (tables / "supp_knowledge_sources.tex").write_text(_knowledge_source_table(registry), encoding="utf-8")
+    (tables / "supp_runtime.tex").write_text(
+        _runtime_table(_read_csv(result_root / "aggregates" / "runtime_results.csv")), encoding="utf-8"
+    )
+    (tables / "supp_significance.tex").write_text(
+        _significance_table(_read_csv(result_root / "aggregates" / "significance_results.csv")), encoding="utf-8"
+    )
+    (tables / "supp_evidence.tex").write_text(
+        _registry_experiment_table(registry, ["automatic_evidence_rationale_verifier", "human_evidence_evaluation"], "Evidence evaluation"),
+        encoding="utf-8",
+    )
+    (tables / "supp_rationale.tex").write_text(
+        _registry_experiment_table(registry, ["automatic_evidence_rationale_verifier", "human_rationale_evaluation"], "Rationale evaluation"),
+        encoding="utf-8",
+    )
+    (tables / "supp_verifier.tex").write_text(
+        _registry_experiment_table(registry, ["automatic_evidence_rationale_verifier", "human_verifier_evaluation"], "Verifier evaluation"),
+        encoding="utf-8",
+    )
     (latex / "generated" / "experiment_status.tex").write_text(_status_table(statuses), encoding="utf-8")
-    registry = load_experiment_registry()
     required = {
         experiment_id: spec.get("status")
         for experiment_id, spec in (registry.get("experiments", {}) or {}).items()
@@ -186,6 +211,64 @@ def _external_table(rows: list[dict[str, str]]) -> str:
     return "\n".join(lines + ["\\bottomrule", "\\end{tabular}", ""])
 
 
+def _registry_group_table(registry: dict[str, Any], group: str, heading: str) -> str:
+    rows = [
+        (str(payload.get("display_name", experiment_id)), str(payload.get("status", "not_run")))
+        for experiment_id, payload in (registry.get("experiments", {}) or {}).items()
+        if payload.get("group") == group
+    ]
+    if not rows:
+        rows = [("Not run", "not_run")]
+    lines = ["\\begin{tabular}{lc}", "\\toprule", f"{_tex(heading)} & Status \\\\ ", "\\midrule"]
+    lines.extend(f"{_tex(name)} & {_tex(status)} \\\\" for name, status in rows)
+    return "\n".join(lines + ["\\bottomrule", "\\end{tabular}", ""])
+
+
+def _registry_experiment_table(registry: dict[str, Any], experiment_ids: list[str], heading: str) -> str:
+    experiments = registry.get("experiments", {}) or {}
+    rows = []
+    for experiment_id in experiment_ids:
+        payload = experiments.get(experiment_id, {}) or {}
+        rows.append((str(payload.get("display_name", experiment_id)), str(payload.get("status", "not_run"))))
+    lines = ["\\begin{tabular}{lc}", "\\toprule", f"{_tex(heading)} & Status \\\\ ", "\\midrule"]
+    lines.extend(f"{_tex(name)} & {_tex(status)} \\\\" for name, status in rows)
+    return "\n".join(lines + ["\\bottomrule", "\\end{tabular}", ""])
+
+
+def _knowledge_source_table(registry: dict[str, Any]) -> str:
+    sources = registry.get("knowledge_sources", {}) or {}
+    rows = [(str(name), str((payload or {}).get("status", "not_run"))) for name, payload in sources.items()]
+    if not rows:
+        rows = [("Not configured", "not_run")]
+    lines = ["\\begin{tabular}{lc}", "\\toprule", "Source & Status \\\\ ", "\\midrule"]
+    lines.extend(f"{_tex(name)} & {_tex(status)} \\\\" for name, status in rows)
+    return "\n".join(lines + ["\\bottomrule", "\\end{tabular}", ""])
+
+
+def _runtime_table(rows: list[dict[str, str]]) -> str:
+    selected = rows[:50]
+    if not selected:
+        selected = [{"experiment_id": "Not run", "runtime_seconds": "--", "peak_gpu_memory_mb": "--"}]
+    lines = ["\\begin{tabular}{lcc}", "\\toprule", "Method & Runtime (s) & Peak memory (MB) \\\\ ", "\\midrule"]
+    lines.extend(
+        f"{_tex(row.get('experiment_id', '--'))} & {_tex(row.get('runtime_seconds') or '--')} & {_tex(row.get('peak_gpu_memory_mb') or '--')} \\\\"
+        for row in selected
+    )
+    return "\n".join(lines + ["\\bottomrule", "\\end{tabular}", ""])
+
+
+def _significance_table(rows: list[dict[str, str]]) -> str:
+    selected = rows[:50]
+    if not selected:
+        selected = [{"model_a": "Ours Full", "model_b": "Not run", "eligible": "false"}]
+    lines = ["\\begin{tabular}{llc}", "\\toprule", "Model A & Model B & Paired test eligible \\\\ ", "\\midrule"]
+    lines.extend(
+        f"{_tex(row.get('model_a', '--'))} & {_tex(row.get('model_b', '--'))} & {_tex(row.get('eligible', 'false'))} \\\\"
+        for row in selected
+    )
+    return "\n".join(lines + ["\\bottomrule", "\\end{tabular}", ""])
+
+
 def _read_csv(path: Path) -> list[dict[str, str]]:
     if not path.exists() or not path.read_text(encoding="utf-8").strip():
         return []
@@ -237,24 +320,40 @@ def _generate_figures(latex: Path, summaries: list[dict[str, str]], statuses: li
     figure_root = latex / "figures" / "generated"
     generated: list[str] = []
     main = [row for row in summaries if row.get("task") == "harmfulness" and row.get("metric") == "macro_f1" and _number(row.get("mean"), None) is not None]
-    if not main:
-        return generated
     try:
+        cache_root = Path(tempfile.gettempdir()) / "meme_detection_plot_cache"
+        cache_root.mkdir(parents=True, exist_ok=True)
+        os.environ.setdefault("MPLCONFIGDIR", str(cache_root / "matplotlib"))
+        os.environ.setdefault("XDG_CACHE_HOME", str(cache_root))
         import matplotlib.pyplot as plt  # type: ignore
     except ImportError:
         return generated
     figure_root.mkdir(parents=True, exist_ok=True)
-    labels = [row.get("experiment_id", "") for row in main]
-    values = [_number(row.get("mean"), 0.0) for row in main]
-    fig, ax = plt.subplots(figsize=(max(5, len(labels) * 0.65), 3.2))
-    ax.bar(range(len(labels)), values, color="#136f63")
-    ax.set_ylabel("Macro-F1")
-    ax.set_xticks(range(len(labels)), labels, rotation=45, ha="right")
-    fig.tight_layout()
-    path = figure_root / "main_performance.pdf"
-    fig.savefig(path)
-    plt.close(fig)
-    generated.append(str(path))
+    if main:
+        labels = [row.get("experiment_id", "") for row in main]
+        values = [_number(row.get("mean"), 0.0) for row in main]
+        fig, ax = plt.subplots(figsize=(max(5, len(labels) * 0.65), 3.2))
+        ax.bar(range(len(labels)), values, color="#136f63")
+        ax.set_ylabel("Macro-F1")
+        ax.set_xticks(range(len(labels)), labels, rotation=45, ha="right")
+        fig.tight_layout()
+        path = figure_root / "main_performance.pdf"
+        fig.savefig(path)
+        plt.close(fig)
+        generated.append(str(path))
+    status_counts = Counter(str(row.get("status") or "unknown") for row in statuses)
+    if status_counts:
+        labels = list(sorted(status_counts))
+        values = [status_counts[label] for label in labels]
+        fig, ax = plt.subplots(figsize=(max(5, len(labels) * 0.7), 3.2))
+        ax.bar(range(len(labels)), values, color="#4c78a8")
+        ax.set_ylabel("Experiment conditions")
+        ax.set_xticks(range(len(labels)), labels, rotation=35, ha="right")
+        fig.tight_layout()
+        path = figure_root / "experiment_progress.pdf"
+        fig.savefig(path)
+        plt.close(fig)
+        generated.append(str(path))
     return generated
 
 

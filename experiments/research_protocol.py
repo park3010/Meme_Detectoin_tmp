@@ -234,10 +234,13 @@ def audit_fhm_leakage(
     retrieval_checks: list[dict[str, Any]] = []
     for raw_path in retrieval_paths:
         path = Path(raw_path)
-        check = _audit_retrieval_path(path, fhm_keys)
+        check = _audit_retrieval_path(path, fhm_keys, source_manifest.get("content_sha256"))
         retrieval_checks.append(check)
         if not check["passed"]:
-            errors.append({"code": "fhm_retrieval_leakage", "message": check["reason"], "path": str(path)})
+            for violation in check.get("violations", []) or [
+                {"code": "retrieval_policy_failure", "message": check["reason"]}
+            ]:
+                errors.append({**violation, "path": str(path)})
 
     paper_suites = (registry or {}).get("suites", {}) if isinstance(registry, dict) else {}
     memotion_suites = []
@@ -251,6 +254,7 @@ def audit_fhm_leakage(
         "fhm_absent_from_source_train": not bool(overlap),
         "fhm_absent_from_source_validation": not bool(overlap),
         "fhm_absent_from_retrieval_databases": all(item["passed"] for item in retrieval_checks),
+        "retrieval_index_is_harmeme_train_only": all(item["passed"] for item in retrieval_checks),
         "threshold_selection_source": "HarMeme validation only",
         "early_stopping_source": "HarMeme validation only",
         "few_shot_policy": "HarMeme only",
@@ -274,8 +278,9 @@ def source_tree_sha256(root: str | Path = ".") -> str:
     """Hash source/config/document inputs when no Git worktree is available."""
 
     root_path = Path(root).resolve()
-    allowed_suffixes = {".py", ".yaml", ".yml", ".tex", ".bib", ".md", ".json"}
-    allowed_roots = ["configs", "dataset", "experiments", "module", "scripts", "utils", "docs", "latex"]
+    allowed_suffixes = {".py", ".sh", ".yaml", ".yml", ".tex", ".bib", ".md", ".json", ".ini"}
+    allowed_names = {"Makefile", "latexmkrc"}
+    allowed_roots = [".vscode", "configs", "dataset", "experiments", "module", "scripts", "utils", "tests", "docs", "latex"]
     excluded_parts = {"source", "annotation", "annotation_normalized", "build", "generated", "__pycache__"}
     paths: list[Path] = []
     for directory in allowed_roots:
@@ -284,10 +289,14 @@ def source_tree_sha256(root: str | Path = ".") -> str:
             continue
         for path in base.rglob("*"):
             relative = path.relative_to(root_path)
-            if not path.is_file() or path.suffix.lower() not in allowed_suffixes:
+            if not path.is_file() or (path.suffix.lower() not in allowed_suffixes and path.name not in allowed_names):
                 continue
             if any(part in excluded_parts for part in relative.parts):
                 continue
+            paths.append(path)
+    for filename in ("pytest.ini",):
+        path = root_path / filename
+        if path.is_file():
             paths.append(path)
     digest = hashlib.sha256()
     for path in sorted(paths, key=lambda item: item.relative_to(root_path).as_posix()):
@@ -437,9 +446,18 @@ def _records_statistics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _audit_retrieval_path(path: Path, fhm_keys: set[str]) -> dict[str, Any]:
+def _audit_retrieval_path(
+    path: Path,
+    fhm_keys: set[str],
+    source_manifest_content_sha256: str | None = None,
+) -> dict[str, Any]:
     if not path.exists():
-        return {"path": str(path), "passed": False, "reason": "retrieval corpus is missing"}
+        return {
+            "path": str(path),
+            "passed": False,
+            "reason": "retrieval corpus is missing",
+            "violations": [{"code": "retrieval_corpus_missing", "message": "retrieval corpus is missing"}],
+        }
     manifest_candidates = [path.parent.parent / "wiki_manifest.json", path.with_name("meta.json")]
     for manifest_path in manifest_candidates:
         if not manifest_path.exists():
@@ -449,13 +467,35 @@ def _audit_retrieval_path(path: Path, fhm_keys: set[str]) -> dict[str, Any]:
         except (json.JSONDecodeError, OSError):
             continue
         datasets = {str(item).lower() for item in metadata.get("datasets", []) or []}
+        violations: list[dict[str, str]] = []
         if datasets & {"facebook", "fhm"}:
+            violations.append(
+                {"code": "fhm_retrieval_leakage", "message": "retrieval corpus provenance includes Facebook/FHM"}
+            )
+        if "memotion" in datasets:
+            violations.append(
+                {"code": "disabled_dataset_retrieval_leakage", "message": "retrieval corpus provenance includes disabled Memotion"}
+            )
+        source_aliases = {"harm_c", "harm_p", "covid", "political", "harmeme"}
+        if datasets & source_aliases:
+            partition = str(metadata.get("source_partition") or metadata.get("index_partition") or "").lower()
+            declared_hash = metadata.get("source_split_content_sha256")
+            if partition not in {"train", "harmeme_train"}:
+                violations.append(
+                    {"code": "retrieval_train_partition_unverified", "message": "retrieval corpus does not declare HarMeme-train-only construction"}
+                )
+            if not source_manifest_content_sha256 or declared_hash != source_manifest_content_sha256:
+                violations.append(
+                    {"code": "retrieval_split_hash_unverified", "message": "retrieval corpus is not bound to the immutable HarMeme source split"}
+                )
+        if violations:
             return {
                 "path": str(path),
                 "manifest_path": str(manifest_path),
                 "passed": False,
-                "reason": "retrieval corpus provenance includes Facebook/FHM",
+                "reason": "; ".join(item["message"] for item in violations),
                 "datasets": sorted(datasets),
+                "violations": violations,
             }
     # A bounded exact-ID scan catches dataset-internal corpora without loading
     # large embedding arrays. General knowledge corpora normally have no such IDs.
@@ -464,8 +504,19 @@ def _audit_retrieval_path(path: Path, fhm_keys: set[str]) -> dict[str, Any]:
         bare_ids = {key.split("::", 1)[1] for key in fhm_keys}
         matches = [value for value in bare_ids if f'"{value}"' in text][:5]
         if matches:
-            return {"path": str(path), "passed": False, "reason": "FHM sample IDs found in retrieval corpus", "examples": matches}
-    return {"path": str(path), "passed": True, "reason": "no FHM provenance or IDs detected"}
+            return {
+                "path": str(path),
+                "passed": False,
+                "reason": "FHM sample IDs found in retrieval corpus",
+                "examples": matches,
+                "violations": [{"code": "fhm_retrieval_leakage", "message": "FHM sample IDs found in retrieval corpus"}],
+            }
+    return {
+        "path": str(path),
+        "passed": True,
+        "reason": "no prohibited dataset provenance or IDs detected",
+        "violations": [],
+    }
 
 
 def _record_check(errors: list[dict[str, Any]], passed: bool, code: str, message: str) -> None:

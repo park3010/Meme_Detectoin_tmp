@@ -39,6 +39,7 @@ PAPER_DATASET_PROTOCOL: dict[str, dict[str, Any]] = {
         "domain": "covid",
         "domain_role": "source_train_validation",
         "enabled_for_paper": True,
+        "expected_sample_count": 3544,
     },
     "harm_p": {
         "dataset_family": "harmeme",
@@ -47,6 +48,7 @@ PAPER_DATASET_PROTOCOL: dict[str, dict[str, Any]] = {
         "domain": "politics",
         "domain_role": "source_train_validation",
         "enabled_for_paper": True,
+        "expected_sample_count": 3469,
     },
     "facebook": {
         "dataset_family": "fhm",
@@ -56,6 +58,7 @@ PAPER_DATASET_PROTOCOL: dict[str, dict[str, Any]] = {
         "domain_role": "heldout_target_test",
         "annotation_provenance": "agent_silver_structured_evaluation",
         "enabled_for_paper": True,
+        "expected_sample_count": 9000,
     },
     "memotion": {
         "dataset_family": "memotion",
@@ -65,6 +68,7 @@ PAPER_DATASET_PROTOCOL: dict[str, dict[str, Any]] = {
         "domain_role": "future_dataset",
         "enabled_for_paper": False,
         "disabled_reason": "unified harmfulness labels require future re-annotation",
+        "expected_sample_count": 6987,
     },
 }
 

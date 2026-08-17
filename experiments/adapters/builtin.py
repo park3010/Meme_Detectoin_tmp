@@ -29,9 +29,15 @@ class _BuiltinAdapter(ExperimentAdapter):
     native_run_dir: Path | None = None
     _started_at: float | None = None
     _metrics: dict[str, Any] | None = None
+    _audit_result: dict[str, Any] | None = None
 
     def prepare_data(self) -> dict[str, Any]:
-        if self.run_dir.exists() and any(self.run_dir.iterdir()) and not self.context.force:
+        if (
+            self.run_dir.exists()
+            and any(self.run_dir.iterdir())
+            and not self.context.force
+            and not self.context.resume
+        ):
             raise FileExistsError(f"Refusing to overwrite completed/partial run: {self.run_dir}")
         if not Path(self.spec.split_manifest).exists():
             raise FileNotFoundError(f"Source split manifest is missing: {self.spec.split_manifest}")
@@ -87,6 +93,7 @@ class _BuiltinAdapter(ExperimentAdapter):
             "# Pipeline audit\n\n```text\n" + format_audit_summary(result) + "\n```\n",
             encoding="utf-8",
         )
+        self._audit_result = result
         return result
 
     def export(self) -> dict[str, Any]:
@@ -145,6 +152,7 @@ class _BuiltinAdapter(ExperimentAdapter):
         complexity["trainable_parameter_count"] = canonical_manifest.get("trainable_parameter_count")
         complexity["run_artifact_size_bytes"] = sum(path.stat().st_size for path in self.run_dir.rglob("*") if path.is_file())
         write_json(self.run_dir / "complexity.json", complexity)
+        audit_passed = bool((self._audit_result or {}).get("passed"))
         update_run_manifest(
             self.run_dir,
             {
@@ -166,10 +174,14 @@ class _BuiltinAdapter(ExperimentAdapter):
                 "annotation_provenance": "original_fhm_label_and_agent_silver_structured_evaluation",
                 "selection_data": "HarMeme validation only",
                 "test_data": "FHM only",
-                "completion_status": "complete",
+                "completion_status": "complete" if audit_passed else "failed_audit",
             },
         )
-        return {"status": "completed", "metrics": self._metrics or {}, "artifacts": sorted(path.name for path in self.run_dir.iterdir())}
+        return {
+            "status": "completed" if audit_passed else "failed_audit",
+            "metrics": self._metrics or {},
+            "artifacts": sorted(path.name for path in self.run_dir.iterdir()),
+        }
 
     def _native_path(self, name: str) -> Path:
         if self.native_run_dir is None:

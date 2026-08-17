@@ -73,6 +73,7 @@ def audit_run_artifacts(
     }
 
     manifest = _load_manifest(paths["manifest"], result)
+    result["paper_protocol_manifest"] = audit_paper_protocol_manifest(manifest, result, strict=strict)
     result["manifest"] = manifest
     require_training_log = _requires_training_log(manifest)
     training_rows = _load_records(paths["training_log"], result, "training log", strict and require_training_log)
@@ -154,6 +155,7 @@ def audit_baseline_run_artifacts(
         "errors": [],
     }
     manifest = _load_manifest(paths["manifest"], result)
+    result["paper_protocol_manifest"] = audit_paper_protocol_manifest(manifest, result, strict=strict)
     training_rows = _load_records(paths["training_log"], result, "training log", strict)
     prediction_rows = _load_records(paths["predictions"], result, "predictions", strict)
     validation_rows = _load_records(
@@ -234,6 +236,52 @@ def audit_baseline_run_artifacts(
         "pass" if result["passed"] and not result["warnings"] else "warning" if result["passed"] else "fail"
     )
     return result
+
+
+def audit_paper_protocol_manifest(
+    manifest: dict[str, Any],
+    result: dict[str, Any],
+    *,
+    strict: bool,
+) -> dict[str, Any]:
+    """Validate additive provenance required only by locked paper runs."""
+
+    if manifest.get("paper_protocol") != "harmeme_to_fhm_v1":
+        return {"required": False, "passed": True, "missing_fields": []}
+    required_fields = {
+        "source_train_manifest_path",
+        "source_train_manifest_sha256",
+        "source_validation_manifest_path",
+        "source_validation_manifest_sha256",
+        "fhm_test_manifest_path",
+        "fhm_test_manifest_sha256",
+        "config_sha256",
+        "label_vocab_sha256",
+        "normalized_label_snapshot_sha256",
+        "code_commit_or_source_tree_sha256",
+        "pretrained_asset_hashes",
+        "registry_version",
+    }
+    missing = sorted(field for field in required_fields if not manifest.get(field))
+    if manifest.get("source_train_manifest_sha256") != manifest.get("source_validation_manifest_sha256"):
+        missing.append("source_train_and_validation_manifest_hashes_match")
+    if manifest.get("threshold_selection_dataset") != "HarMeme validation":
+        missing.append("threshold_selection_dataset=HarMeme validation")
+    if manifest.get("early_stopping_dataset") != "HarMeme validation":
+        missing.append("early_stopping_dataset=HarMeme validation")
+    if manifest.get("heldout_test_dataset") != "facebook":
+        missing.append("heldout_test_dataset=facebook")
+    assets = manifest.get("pretrained_asset_hashes", {}) or {}
+    if not isinstance(assets, dict) or not any(assets.values()):
+        missing.append("pretrained_asset_hashes.nonempty")
+    if missing:
+        _issue(
+            result,
+            "Paper protocol manifest is incomplete: " + ", ".join(sorted(set(missing))),
+            strict=strict,
+            critical=True,
+        )
+    return {"required": True, "passed": not missing, "missing_fields": sorted(set(missing))}
 
 
 def discover_artifacts(
@@ -857,6 +905,19 @@ def format_audit_summary(result: dict[str, Any]) -> str:
     training = result.get("training_log", {})
     predictions = result.get("predictions", {})
     metrics = result.get("metrics", {})
+    if result.get("audit_contract") == "harmfulness_baseline_v1":
+        lines = [
+            f"Baseline audit: {str(result.get('status', 'unknown')).upper()}",
+            f"Run root: {result.get('run_root')}",
+            f"Training epochs: {training.get('epoch_count', 0)}",
+            f"Prediction contract: {predictions.get('contract_pass_count', 0)}/{predictions.get('audited_count', 0)}",
+            f"Metrics usable: {metrics.get('metrics_usable', False)}",
+        ]
+        if result.get("warnings"):
+            lines.append(f"Warnings: {len(result['warnings'])}")
+        if result.get("errors"):
+            lines.append(f"Errors: {len(result['errors'])}")
+        return "\n".join(lines)
     formal = result.get("formal_tactic_decoding", {})
     expected_count = len(training.get("expected_logits_losses", EXPECTED_LOGITS_LOSSES))
     lines = [

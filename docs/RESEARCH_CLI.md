@@ -15,7 +15,13 @@ python scripts/run.py research run --suite harmeme_to_fhm_smoke --dry-run
 # A selected suite executes only after passing strict preflight
 python scripts/run.py research run --suite harmeme_to_fhm_smoke --device cuda
 
-# Resume skips only canonical runs with all required artifacts and a passing audit
+# Select an explicit registered subset from a suite
+python scripts/run.py research run \
+  --suite harmeme_to_fhm_1seed \
+  --experiment ours_full ablation_w_o_retrieval \
+  --device cuda
+
+# Resume skips audited-complete runs and retries partial/failed run directories
 python scripts/run.py research run --suite harmeme_to_fhm_1seed --resume --device cuda
 
 python scripts/run.py research status
@@ -26,7 +32,7 @@ python scripts/run.py research paper-export
 python scripts/run.py research paper-check --mode draft
 ```
 
-`--limit` applies independently to source train, source validation, and FHM test selections for smoke work. It must not be used for final paper runs. Existing run directories are not overwritten unless `--force` is explicit.
+`--limit` applies independently to source train, source validation, and FHM test selections for smoke work. It must not be used for final paper runs. Existing run directories are not overwritten unless `--force` is explicit; `--resume` is the deliberate exception for retrying incomplete runs. `--experiment` accepts only IDs that belong to the selected suite.
 
 Canonical runs live at:
 

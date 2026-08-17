@@ -24,7 +24,7 @@ from experiments.prediction_io import save_predictions_and_metrics, stage_output
 from experiments.progress import ProgressConfig, progress_iter, progress_write, set_progress_postfix
 from experiments.pretrained_assets import build_asset_provenance
 from experiments.run_manifest import build_data_snapshot, build_run_manifest, collect_backbone_state, current_command, sha256_file, write_run_manifest
-from experiments.research_protocol import load_manifest as load_research_manifest, select_manifest_samples
+from experiments.research_protocol import load_manifest as load_research_manifest, select_manifest_samples, source_tree_sha256
 from experiments.splits import build_splits_for_dataset, label_to_int, load_split_file, save_splits, split_samples
 from experiments.tactic_decoding import (
     extract_gold_tactic_labels,
@@ -828,6 +828,8 @@ def run_baseline_experiment(config: BaselineRunConfig) -> dict[str, Any]:
     test_metrics, predictions = evaluate_model(model, materialized.get("test", []), config.batch_size, device, progress=progress_config, desc="test")
     save_baseline_outputs(config, model, predictions, test_metrics)
     backbone_state = collect_backbone_state(model)
+    asset_provenance = build_asset_provenance(cfg, runtime_state=backbone_state)
+    data_snapshot = _run_data_snapshot(config)
     manifest = build_run_manifest(
         suite_name=config.suite_name,
         run_kind="baseline",
@@ -846,14 +848,12 @@ def run_baseline_experiment(config: BaselineRunConfig) -> dict[str, Any]:
             "parameter_count": sum(int(param.numel()) for param in model.parameters()),
             "trainable_parameter_count": sum(int(param.numel()) for param in model.parameters() if param.requires_grad),
             "backbone_state": backbone_state,
-            "pretrained_asset_provenance": build_asset_provenance(cfg, runtime_state=backbone_state),
-            "data_snapshot": build_data_snapshot(
-                normalized_root=config.normalized_root,
-                label_set=config.label_set,
-                label_vocab_path=config.vocab_path,
-                datasets=list(config.source_dataset_names or [config.dataset_name])
-                + ([config.heldout_test_dataset] if config.heldout_test_dataset else []),
-            ),
+            "pretrained_asset_provenance": asset_provenance,
+            "pretrained_asset_hashes": _asset_hashes(asset_provenance),
+            "data_snapshot": data_snapshot,
+            "label_vocab_sha256": data_snapshot.get("label_vocab_sha256"),
+            "normalized_label_snapshot_sha256": data_snapshot.get("normalized_label_snapshot_sha256"),
+            "code_commit_or_source_tree_sha256": source_tree_sha256(),
             **_research_manifest_fields(config),
         },
     )
@@ -1121,6 +1121,8 @@ def _ours_manifest(config: OursRunConfig, pipeline: HarmfulMemePipeline) -> dict
     cfg = load_yaml(config.config_path)
     backbone_state = collect_backbone_state(pipeline)
     runtime_ablation = runtime_config_for_ablation(ablation_name)
+    asset_provenance = build_asset_provenance(cfg, runtime_state=backbone_state)
+    data_snapshot = _run_data_snapshot(config)
     return build_run_manifest(
         suite_name=config.suite_name,
         run_kind="ablation" if ablation_name else "ours_full",
@@ -1145,14 +1147,12 @@ def _ours_manifest(config: OursRunConfig, pipeline: HarmfulMemePipeline) -> dict
             "parameter_count": sum(int(param.numel()) for param in pipeline.parameters()),
             "trainable_parameter_count": sum(int(param.numel()) for param in pipeline.parameters() if param.requires_grad),
             "backbone_state": backbone_state,
-            "pretrained_asset_provenance": build_asset_provenance(cfg, runtime_state=backbone_state),
-            "data_snapshot": build_data_snapshot(
-                normalized_root=config.normalized_root,
-                label_set=config.label_set,
-                label_vocab_path=config.vocab_path,
-                datasets=list(config.source_dataset_names or [config.dataset_name])
-                + ([config.heldout_test_dataset] if config.heldout_test_dataset else []),
-            ),
+            "pretrained_asset_provenance": asset_provenance,
+            "pretrained_asset_hashes": _asset_hashes(asset_provenance),
+            "data_snapshot": data_snapshot,
+            "label_vocab_sha256": data_snapshot.get("label_vocab_sha256"),
+            "normalized_label_snapshot_sha256": data_snapshot.get("normalized_label_snapshot_sha256"),
+            "code_commit_or_source_tree_sha256": source_tree_sha256(),
             **_research_manifest_fields(config),
         },
     )
@@ -1166,6 +1166,23 @@ def _resolved_split_path(config: OursRunConfig | BaselineRunConfig) -> Path:
     return Path(config.output_root) / "splits" / config.dataset_name / f"seed_{config.seed}.json"
 
 
+def _run_data_snapshot(config: OursRunConfig | BaselineRunConfig) -> dict[str, Any]:
+    return build_data_snapshot(
+        normalized_root=config.normalized_root,
+        label_set=config.label_set,
+        label_vocab_path=config.vocab_path,
+        datasets=list(config.source_dataset_names or [config.dataset_name])
+        + ([config.heldout_test_dataset] if config.heldout_test_dataset else []),
+    )
+
+
+def _asset_hashes(provenance: dict[str, Any]) -> dict[str, Any]:
+    return {
+        name: (provenance.get(name, {}) or {}).get("sha256")
+        for name in ("vision", "text")
+    }
+
+
 def _research_manifest_fields(config: OursRunConfig | BaselineRunConfig) -> dict[str, Any]:
     if not config.source_split_manifest:
         return {}
@@ -1173,6 +1190,7 @@ def _research_manifest_fields(config: OursRunConfig | BaselineRunConfig) -> dict
     fhm_path = Path(config.heldout_test_manifest) if config.heldout_test_manifest else None
     return {
         "paper_protocol": "harmeme_to_fhm_v1",
+        "registry_version": "wsmd2027_harmeme_fhm_20260714_v1",
         "source_train_manifest_path": str(source_path),
         "source_train_manifest_sha256": sha256_file(source_path),
         "source_validation_manifest_path": str(source_path),

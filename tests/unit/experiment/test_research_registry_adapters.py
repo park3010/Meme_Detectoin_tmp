@@ -33,6 +33,11 @@ def test_blocked_external_adapter_cannot_execute(tmp_path):
         adapter.train_or_fit()
 
 
+def test_run_context_exposes_partial_run_resume_policy(tmp_path):
+    context = RunContext(suite="test", seed=42, output_root=str(tmp_path), resume=True)
+    assert context.resume is True
+
+
 def test_shared_openclip_baseline_has_distinct_interaction_classifier():
     model = OpenCLIPMultimodalClassifier(hidden_dim=32, prefer_pretrained_clip=False)
     output = model([None, None], ["first meme", "second meme"])

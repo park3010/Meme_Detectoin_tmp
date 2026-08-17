@@ -46,6 +46,12 @@ def test_dataset_family_roles_disable_memotion():
     assert PAPER_DATASET_PROTOCOL["harm_p"]["domain"] == "politics"
     assert PAPER_DATASET_PROTOCOL["facebook"]["domain_role"] == "heldout_target_test"
     assert PAPER_DATASET_PROTOCOL["memotion"]["enabled_for_paper"] is False
+    assert {name: row["expected_sample_count"] for name, row in PAPER_DATASET_PROTOCOL.items()} == {
+        "harm_c": 3544,
+        "harm_p": 3469,
+        "facebook": 9000,
+        "memotion": 6987,
+    }
 
 
 def test_leakage_audit_blocks_facebook_retrieval_provenance(tmp_path):
@@ -60,6 +66,24 @@ def test_leakage_audit_blocks_facebook_retrieval_provenance(tmp_path):
     audit = audit_fhm_leakage(source, fhm, config_path=config, registry={"suites": {}})
     assert audit["passed"] is False
     assert audit["errors"][0]["code"] == "fhm_retrieval_leakage"
+
+
+def test_leakage_audit_requires_harmeme_train_only_and_blocks_memotion(tmp_path):
+    source = build_source_manifest([_row("harm_c", i, i % 2) for i in range(6)])
+    fhm = build_fhm_manifest([_row("facebook", i, i % 2) for i in range(4)])
+    corpus = tmp_path / "cache" / "corpus.jsonl"
+    corpus.parent.mkdir(parents=True)
+    corpus.write_text('{"text":"general"}\n', encoding="utf-8")
+    (tmp_path / "wiki_manifest.json").write_text(
+        '{"datasets":["covid","memotion"],"source_partition":"validation"}', encoding="utf-8"
+    )
+    config = tmp_path / "config.yaml"
+    config.write_text(f"paths:\n  retrieval_corpus_paths:\n    - {corpus}\n", encoding="utf-8")
+    audit = audit_fhm_leakage(source, fhm, config_path=config, registry={"suites": {}})
+    codes = {row["code"] for row in audit["errors"]}
+    assert "disabled_dataset_retrieval_leakage" in codes
+    assert "retrieval_train_partition_unverified" in codes
+    assert "retrieval_split_hash_unverified" in codes
 
 
 def test_immutable_manifest_refuses_silent_replacement(tmp_path):

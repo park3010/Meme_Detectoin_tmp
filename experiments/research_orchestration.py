@@ -165,6 +165,7 @@ def execute_research_suite(
             device=device,
             disable_tqdm=disable_tqdm,
             force=force,
+            resume=resume,
         )
         adapter = create_adapter(spec, context)
         if spec.status != "ready" or not spec.enabled:

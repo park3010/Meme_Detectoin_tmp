@@ -5,6 +5,7 @@
   "results_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   "generated_files": [
     "latex/figures/generated/README.md",
+    "latex/figures/generated/experiment_progress.pdf",
     "latex/generated/experiment_status.tex",
     "latex/generated/generation_manifest.json",
     "latex/generated/result_macros.tex",
@@ -23,7 +24,9 @@
     "latex/tables/generated/supp_significance.tex",
     "latex/tables/generated/supp_verifier.tex"
   ],
-  "generated_figures": [],
+  "generated_figures": [
+    "latex/figures/generated/experiment_progress.pdf"
+  ],
   "required_experiment_status": {
     "text_only_deberta": "ready",
     "image_only_openclip": "ready",

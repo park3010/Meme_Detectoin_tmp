@@ -24,6 +24,7 @@ class RunContext:
     device: str = "cpu"
     disable_tqdm: bool = False
     force: bool = False
+    resume: bool = False
 
     def run_dir(self, experiment_id: str) -> Path:
         return Path(self.output_root) / "research_runs" / self.suite / experiment_id / f"seed_{self.seed}"
@@ -82,4 +83,6 @@ class ExperimentAdapter(ABC):
         self.evaluate()
         audit = self.audit()
         exported = self.export()
+        if not audit.get("passed", False):
+            raise RuntimeError(f"Experiment audit failed for {self.run_dir}")
         return {"run_dir": str(self.run_dir), "audit": audit, **exported}

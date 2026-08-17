@@ -168,7 +168,7 @@ def import_human_ratings(
 
 
 def agreement_report(path: str | Path, rating_columns: list[str]) -> dict[str, Any]:
-    """Compute pairwise exact agreement and quadratic weighted kappa."""
+    """Compute pairwise agreement for ordinal or categorical ratings."""
 
     rows = _read_csv(Path(path))
     by_item: dict[str, list[dict[str, str]]] = {}
@@ -177,17 +177,23 @@ def agreement_report(path: str | Path, rating_columns: list[str]) -> dict[str, A
             by_item.setdefault(row["item_id"], []).append(row)
     metrics = {}
     for column in rating_columns:
-        pairs = []
+        pairs: list[tuple[str, str]] = []
         for item_rows in by_item.values():
             if len(item_rows) < 2:
                 continue
             values = [row.get(column, "") for row in item_rows if str(row.get(column, "")).strip()]
             if len(values) >= 2:
-                pairs.append((int(values[0]), int(values[1])))
+                pairs.append((str(values[0]), str(values[1])))
+        numeric_pairs: list[tuple[int, int]] = []
+        try:
+            numeric_pairs = [(int(a), int(b)) for a, b in pairs]
+        except ValueError:
+            numeric_pairs = []
         metrics[column] = {
             "paired_item_count": len(pairs),
             "exact_agreement": sum(a == b for a, b in pairs) / len(pairs) if pairs else None,
-            "quadratic_weighted_kappa": _weighted_kappa(pairs) if pairs else None,
+            "quadratic_weighted_kappa": _weighted_kappa(numeric_pairs) if numeric_pairs else None,
+            "categorical_kappa": _categorical_kappa(pairs) if pairs else None,
         }
     return {"schema_version": "human_agreement_report_v1", "metrics": metrics}
 
@@ -213,6 +219,20 @@ def _weighted_kappa(pairs: list[tuple[int, int]]) -> float | None:
             observed_weight += weight * observed[i][j] / total
             expected_weight += weight * (left[i] * right[j]) / (total * total)
     return None if expected_weight == 0 else 1.0 - observed_weight / expected_weight
+
+
+def _categorical_kappa(pairs: list[tuple[str, str]]) -> float | None:
+    """Return unweighted Cohen's kappa for a two-rater paired subset."""
+
+    if not pairs:
+        return None
+    total = float(len(pairs))
+    observed = sum(left == right for left, right in pairs) / total
+    left_counts = Counter(left for left, _ in pairs)
+    right_counts = Counter(right for _, right in pairs)
+    labels = set(left_counts) | set(right_counts)
+    expected = sum((left_counts[label] / total) * (right_counts[label] / total) for label in labels)
+    return None if expected >= 1.0 else (observed - expected) / (1.0 - expected)
 
 
 def _short_hash(value: str) -> str:

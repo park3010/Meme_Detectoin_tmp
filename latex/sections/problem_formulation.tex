@@ -1,3 +1,230 @@
-% !TeX root = ../main.tex
 \section{Problem Formulation}
-The locked evaluation separates HarMeme source domains from the FHM held-out target domain. Structured fields are evaluated only where label masks mark agent-silver annotations as eligible.
+\label{sec:problem}
+
+\subsection{Structured Harmful Meme Interpretation}
+\label{sec:problem:task}
+
+A meme is a multimodal instance
+$\mathcal{M}=(I,T)$, where $I$ denotes the meme image and
+$T$ denotes the text extracted from the image using optical
+character recognition.
+Conventional harmful meme detection predicts a binary label from
+$\mathcal{M}$.
+In contrast, we formulate meme understanding as a structured
+interpretation problem that jointly identifies whether the meme is
+harmful, who or what it targets, what communicative intent it
+expresses, and which rhetorical and multimodal strategies construct
+its meaning.
+
+For each meme, the model predicts
+
+\begin{equation}
+\hat{\mathcal{Y}}
+=
+\left(
+\hat{y}^{h},
+\hat{y}^{p},
+\hat{y}^{g},
+\hat{y}^{i},
+\hat{\mathbf{y}}^{r},
+\hat{y}^{m}
+\right),
+\label{eq:structured_output}
+\end{equation}
+
+where $\hat{y}^{h}$ is the harmfulness prediction,
+$\hat{y}^{p}$ denotes target presence,
+$\hat{y}^{g}$ denotes target granularity,
+$\hat{y}^{i}$ is the primary communicative intent,
+$\hat{\mathbf{y}}^{r}$ is a multi-label prediction over rhetorical
+tactics, and $\hat{y}^{m}$ denotes the multimodal relation through
+which the image and text jointly convey meaning.
+
+Harmfulness, target presence, target granularity, primary intent,
+and multimodal relation are modeled as single-label classification
+tasks.
+Rhetorical tactic prediction is modeled as a multi-label task
+because a meme may simultaneously employ multiple strategies, such
+as sarcasm, stereotyping, dehumanization, or exaggeration.
+Task-specific labels denoting insufficient or ambiguous supervision
+are excluded using field-level masks, whereas a valid
+\texttt{none} category is retained when the corresponding
+phenomenon is absent.
+
+\subsection{Evidence-Grounded Interpretation}
+\label{sec:problem:evidence}
+
+A structured label alone does not explain why a meme is considered
+harmful.
+We therefore require the framework to retain the evidence and
+knowledge used to produce its predictions.
+Let
+
+\begin{equation}
+\mathcal{E}^{\mathrm{int}}
+=
+\left\{
+e^{\mathrm{text}},
+e^{\mathrm{visual}},
+e^{\mathrm{cross}}
+\right\}
+\label{eq:internal_evidence}
+\end{equation}
+
+denote internal evidence extracted directly from the meme.
+It may include relevant OCR spans, visual entities or regions, and
+cross-modal cues arising from the interaction between the image and
+text.
+
+The framework may additionally acquire a set of external contextual
+candidates,
+
+\begin{equation}
+\mathcal{C}^{\mathrm{ext}}
+=
+\left\{
+c_1,\ldots,c_K
+\right\},
+\end{equation}
+
+from retrieval, context generation, or fallback mechanisms.
+These candidates are not assumed to be reliable evidence.
+A verifier evaluates their relevance, validity, and task-specific
+support, producing a verified subset
+
+\begin{equation}
+\mathcal{E}^{\mathrm{ver}}
+=
+\mathcal{V}
+\left(
+\mathcal{M},
+\mathcal{E}^{\mathrm{int}},
+\mathcal{C}^{\mathrm{ext}}
+\right)
+\subseteq
+\mathcal{C}^{\mathrm{ext}},
+\label{eq:verified_evidence}
+\end{equation}
+
+where $\mathcal{V}$ denotes the verification procedure.
+Retrieved candidates, generated hypotheses, fallback candidates,
+verified evidence, and rejected candidates remain explicitly
+distinguished through provenance metadata.
+
+The final output therefore consists of both the structured
+prediction in Eq.~\eqref{eq:structured_output} and an explanatory
+record
+
+\begin{equation}
+\hat{\mathcal{A}}
+=
+\left(
+\mathcal{E}^{\mathrm{int}},
+\mathcal{E}^{\mathrm{ver}},
+\mathcal{P},
+\hat{R}
+\right),
+\label{eq:explanation_output}
+\end{equation}
+
+where $\mathcal{P}$ represents evidence and decision provenance and
+$\hat{R}$ is a concise rationale grounded in the selected evidence.
+The rationale is an explanatory output rather than a substitute for
+the task predictions, and it should not introduce claims unsupported
+by either the meme or the verified contextual evidence.
+
+\subsection{Multi-Task Learning Objective}
+\label{sec:problem:objective}
+
+Let
+$\mathcal{Q}=\{h,p,g,i,r,m\}$ denote the set of prediction tasks.
+For sample $n$ and task $q$, let $m_n^q\in\{0,1\}$ be a supervision
+mask indicating whether a valid label is available.
+Let $w_n$ denote a sample weight derived from annotation-quality
+metadata, and let $\lambda_q$ denote the task weight.
+The overall learning objective is
+
+\begin{equation}
+\mathcal{L}(\theta)
+=
+\frac{1}{N}
+\sum_{n=1}^{N}
+w_n
+\sum_{q\in\mathcal{Q}}
+\lambda_q m_n^q
+\,
+\ell_q
+\left(
+f_\theta^q(\mathcal{M}_n),
+y_n^q
+\right),
+\label{eq:multitask_objective}
+\end{equation}
+
+where $f_\theta^q$ is the prediction function for task $q$.
+We use single-label classification losses for
+$q\in\{h,p,g,i,m\}$ and a multi-label binary classification loss for
+$q=r$.
+This masked objective permits the framework to learn from partially
+available structured supervision without treating missing or
+ignored labels as negative instances.
+
+\subsection{Cross-Dataset Generalization}
+\label{sec:problem:generalization}
+
+We study a source-to-target generalization setting.
+The source collection
+
+\begin{equation}
+\mathcal{D}_{S}
+=
+\mathcal{D}_{\mathrm{COVID}}
+\cup
+\mathcal{D}_{\mathrm{Politics}}
+\end{equation}
+
+combines the COVID-19 and U.S.\ politics domains of HarMeme while
+preserving their original domain identities.
+It is partitioned into a source training set
+$\mathcal{D}_{S}^{\mathrm{train}}$ and a source validation set
+$\mathcal{D}_{S}^{\mathrm{val}}$.
+The Facebook Hateful Memes collection forms a disjoint held-out
+target set $\mathcal{D}_{T}$.
+
+Model parameters are optimized only on the source training set:
+
+\begin{equation}
+\theta^{*}
+=
+\arg\min_{\theta}
+\mathcal{L}
+\left(
+\theta;
+\mathcal{D}_{S}^{\mathrm{train}}
+\right).
+\label{eq:source_training}
+\end{equation}
+
+All model-selection decisions, including early stopping,
+hyperparameter selection, and decoding thresholds, are made using
+$\mathcal{D}_{S}^{\mathrm{val}}$.
+Let $\tau^{*}$ denote the resulting decoding policy.
+Final performance is evaluated only after both $\theta^{*}$ and
+$\tau^{*}$ have been fixed:
+
+\begin{equation}
+\hat{\mathcal{Y}}_{T}
+=
+f_{\theta^{*},\tau^{*}}
+\left(
+\mathcal{D}_{T}
+\right).
+\label{eq:heldout_evaluation}
+\end{equation}
+
+No target-domain sample is used for training, validation, threshold
+selection, prompt construction, few-shot demonstration selection,
+or retrieval-index construction.
+This protocol evaluates whether harmfulness detection, structured
+interpretation, and evidence-grounded reasoning learned from
+HarMeme transfer to an unseen meme distribution.

@@ -26,6 +26,24 @@ def test_human_rating_validation_and_agreement(tmp_path: Path):
     assert report["metrics"]["faithfulness"]["paired_item_count"] == 2
 
 
+def test_categorical_verifier_agreement_is_supported(tmp_path: Path):
+    path = tmp_path / "verifier.csv"
+    rows = [
+        {"item_id": "A", "annotator_id": "r1", "relevance": "relevant"},
+        {"item_id": "A", "annotator_id": "r2", "relevance": "partial"},
+        {"item_id": "B", "annotator_id": "r1", "relevance": "irrelevant"},
+        {"item_id": "B", "annotator_id": "r2", "relevance": "irrelevant"},
+    ]
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    report = agreement_report(path, ["relevance"])
+    assert report["metrics"]["relevance"]["paired_item_count"] == 2
+    assert report["metrics"]["relevance"]["categorical_kappa"] is not None
+    assert report["metrics"]["relevance"]["quadratic_weighted_kappa"] is None
+
+
 def test_paper_check_allows_draft_and_blocks_final_markers(tmp_path: Path):
     root = tmp_path / "latex"
     (root / "generated").mkdir(parents=True)

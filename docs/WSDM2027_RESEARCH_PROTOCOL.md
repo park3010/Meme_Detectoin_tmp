@@ -27,7 +27,7 @@ Existing manifests are not replaced unless `--force-regenerate-split` is explici
 
 ## Leakage Rules
 
-FHM is forbidden from training, validation, early stopping, threshold selection, few-shot demonstrations, prompt/configuration development, and retrieval databases. Strict preflight currently blocks the repository because `dataset/source/wiki_common/wiki_manifest.json` declares Facebook provenance. Rebuild that corpus from HarMeme-train-safe/general sources and update its manifest before executing paper suites.
+FHM is forbidden from training, validation, early stopping, threshold selection, few-shot demonstrations, prompt/configuration development, and retrieval databases. Strict preflight currently blocks the repository because `dataset/source/wiki_common/wiki_manifest.json` declares Facebook and Memotion provenance and lacks immutable HarMeme-train-only split binding. Rebuild that corpus from HarMeme-train-safe/general sources and update its manifest before executing paper suites.
 
 Run:
 
