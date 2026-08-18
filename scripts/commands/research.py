@@ -15,6 +15,7 @@ from experiments.research_orchestration import (
 from experiments.research_dashboard import build_research_dashboard
 from experiments.research_results import aggregate_research_results
 from experiments.smoke_diagnostics import diagnose_smoke
+from experiments.source_sanity import run_source_sanity
 from experiments.research_error_analysis import export_research_error_cases
 from experiments.research_human_eval import agreement_report, export_human_evaluation, import_human_ratings, validate_human_ratings
 from experiments.paper_export import check_paper, export_research_paper_artifacts
@@ -112,6 +113,17 @@ def add_research_commands(subparsers: argparse._SubParsersAction, default_config
     diagnose.add_argument("--write-report", action="store_true")
     diagnose.add_argument("--force", action="store_true")
     diagnose.set_defaults(func=_cmd_diagnose_smoke)
+
+    source_sanity = commands.add_parser("source-sanity", help="Run source-only HarMeme sanity diagnostics; FHM/Memotion are forbidden.")
+    source_sanity.add_argument("--profile", required=True, choices=["data_integrity","gradient_check","overfit_32","overfit_128","shuffled_label","domain_probe","all"])
+    source_sanity.add_argument("--output-root", default="result/source_sanity")
+    source_sanity.add_argument("--config", default=default_config)
+    source_sanity.add_argument("--seed", type=int, default=42)
+    source_sanity.add_argument("--device", default="cpu")
+    source_sanity.add_argument("--strict", action=argparse.BooleanOptionalAction, default=False)
+    source_sanity.add_argument("--force", action="store_true")
+    source_sanity.add_argument("--disable-tqdm", action="store_true")
+    source_sanity.set_defaults(func=_cmd_source_sanity)
 
     aggregate = commands.add_parser("aggregate", help="Build canonical long-form and seed-summary results.")
     aggregate.add_argument("--registry", default="configs/experiment_registry.yaml")
@@ -267,6 +279,15 @@ def _cmd_diagnose_smoke(args: argparse.Namespace) -> None:
         result = diagnose_smoke(suite=args.suite, output_root=args.output_root, reference_experiment=args.reference_experiment, strict=args.strict, write_report=args.write_report, force=args.force)
     except RuntimeError as exc:
         print_json({"passed": False, "error": str(exc)})
+        raise SystemExit(2) from exc
+    print_json(result)
+
+
+def _cmd_source_sanity(args: argparse.Namespace) -> None:
+    try:
+        result = run_source_sanity(profile=args.profile, output_root=args.output_root, config=args.config, seed=args.seed, device=args.device, strict=args.strict, force=args.force, disable_tqdm=args.disable_tqdm)
+    except (RuntimeError, ValueError, FileExistsError) as exc:
+        print_json({"passed": False, "error": str(exc), "source_only": True})
         raise SystemExit(2) from exc
     print_json(result)
 
