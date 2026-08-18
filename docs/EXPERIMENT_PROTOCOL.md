@@ -129,6 +129,39 @@ python scripts/run.py preflight --profile main_experiment --config configs/confi
 
 ## Suite Presets
 
+### Canonical research registry suites
+
+For the locked HarMeme-to-FHM research protocol, use `scripts/run.py research`
+with suites from `configs/experiment_registry.yaml`. The current framework
+server's default suites are:
+
+- `ours_framework_smoke`: Ours Full and the four core train-time ablations at
+  seed 42, using the same audit-valid `limit: 100` policy as
+  `harmeme_to_fhm_smoke`.
+- `ours_framework_1seed`: the same five conditions at seed 42 with no smoke
+  override.
+- `ours_framework_5seed`: the same five conditions over seeds 42, 52, 123,
+  777, and 2026, for exactly 25 runs with no smoke override.
+
+Use an isolated output root for smoke artifacts. The registry's smoke override
+limits samples; specify `--epochs 1` explicitly for short training:
+
+```bash
+conda run -n meme_cikm python scripts/run.py research run \
+  --suite ours_framework_smoke \
+  --epochs 1 \
+  --device cuda \
+  --output-root result/ours_smoke
+```
+
+The framework server owns Ours Full, the four core ablations, future
+paper-valid knowledge conditions, and structured/evidence/error analysis. The
+comparison server owns built-in baselines, external SOTA methods, and
+LMM/VLM/agent models. Legacy combined `harmeme_to_fhm_*` suites remain unchanged
+for historical and coordinated use, but are not the framework-only default.
+
+### Legacy preset runner
+
 Configured under `experiments.suites` in `configs/config.yaml`:
 
 - `core_smoke`: one small harm_c validation run with Ours Full, text baseline, and key ablations.

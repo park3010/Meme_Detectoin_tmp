@@ -379,6 +379,25 @@ suites:
     datasets: [harm_c, harm_p, facebook]
     limit: 100
     enabled: true
+  ours_framework_smoke:
+    description: Audit-valid smoke suite for Ours Full and the four core train-time ablations.
+    experiments: [ours_full, ablation_w_o_retrieval, ablation_w_o_support_verifier, ablation_w_o_task_aware_gate, ablation_w_o_structured_auxiliary]
+    seeds: [42]
+    datasets: [harm_c, harm_p, facebook]
+    limit: 100
+    enabled: true
+  ours_framework_1seed:
+    description: One-seed paper pilot for Ours Full and the four core train-time ablations.
+    experiments: [ours_full, ablation_w_o_retrieval, ablation_w_o_support_verifier, ablation_w_o_task_aware_gate, ablation_w_o_structured_auxiliary]
+    seeds: [42]
+    datasets: [harm_c, harm_p, facebook]
+    enabled: true
+  ours_framework_5seed:
+    description: Five-seed paper suite for Ours Full and the four core train-time ablations.
+    experiments: [ours_full, ablation_w_o_retrieval, ablation_w_o_support_verifier, ablation_w_o_task_aware_gate, ablation_w_o_structured_auxiliary]
+    seeds: [42, 52, 123, 777, 2026]
+    datasets: [harm_c, harm_p, facebook]
+    enabled: true
   harmeme_to_fhm_1seed:
     description: One-seed built-in baseline, Ours Full, and core-ablation suite.
     experiments: [text_only_deberta, image_only_openclip, image_text_concat, openclip_classifier, ours_full, ablation_w_o_retrieval, ablation_w_o_support_verifier, ablation_w_o_task_aware_gate, ablation_w_o_structured_auxiliary]

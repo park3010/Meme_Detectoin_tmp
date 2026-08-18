@@ -1,0 +1,42 @@
+schema_version: paper_result_policy_v1
+protocol_version: harmeme_to_fhm_locked_v2
+formal_tasks:
+  - harmfulness
+  - target_presence
+  - target_granularity
+  - intent_primary
+  - tactic_rhetorical
+  - tactic_multimodal_relation
+suite_roles:
+  ours_framework_smoke:
+    role: engineering_smoke
+    paper_eligible: false
+    dashboard_qa_visible: true
+  ours_framework_1seed:
+    role: pilot
+    paper_eligible: false
+    dashboard_qa_visible: true
+  ours_framework_5seed:
+    role: paper_primary
+    paper_eligible: true
+    required_seed_count: 5
+  harmeme_to_fhm_knowledge_1seed:
+    role: diagnostic_unsupported
+    paper_eligible: false
+    dashboard_qa_visible: true
+final_export_requirements:
+  audit_passed: true
+  strict_preflight_passed: true
+  paper_eligible_suite: true
+  paper_eligible_metric: true
+  complete_required_seed_set: true
+  matching_source_split: true
+  matching_fhm_manifest: true
+  matching_protocol_version: true
+  non_smoke_run: true
+checkpoint_retention:
+  policy: canonical_best_and_last
+  canonical_paths: [native/best_model.pt, native/last_model.pt]
+  wrapper_best_model_compatibility: hardlink_or_reference_when_same_filesystem
+  byte_identical_copies: avoid_for_future_runs
+  migration_support_required: true

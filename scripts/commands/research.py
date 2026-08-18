@@ -14,6 +14,7 @@ from experiments.research_orchestration import (
 )
 from experiments.research_dashboard import build_research_dashboard
 from experiments.research_results import aggregate_research_results
+from experiments.smoke_diagnostics import diagnose_smoke
 from experiments.research_error_analysis import export_research_error_cases
 from experiments.research_human_eval import agreement_report, export_human_evaluation, import_human_ratings, validate_human_ratings
 from experiments.paper_export import check_paper, export_research_paper_artifacts
@@ -102,6 +103,15 @@ def add_research_commands(subparsers: argparse._SubParsersAction, default_config
     audit.add_argument("--output-root", default="result")
     audit.add_argument("--strict", action=argparse.BooleanOptionalAction, default=True)
     audit.set_defaults(func=_cmd_audit)
+
+    diagnose = commands.add_parser("diagnose-smoke", help="Forensically diagnose immutable smoke artifacts without training.")
+    diagnose.add_argument("--suite", required=True)
+    diagnose.add_argument("--output-root", default="result")
+    diagnose.add_argument("--reference-experiment", default="ours_full")
+    diagnose.add_argument("--strict", action=argparse.BooleanOptionalAction, default=False)
+    diagnose.add_argument("--write-report", action="store_true")
+    diagnose.add_argument("--force", action="store_true")
+    diagnose.set_defaults(func=_cmd_diagnose_smoke)
 
     aggregate = commands.add_parser("aggregate", help="Build canonical long-form and seed-summary results.")
     aggregate.add_argument("--registry", default="configs/experiment_registry.yaml")
@@ -250,6 +260,15 @@ def _cmd_audit(args: argparse.Namespace) -> None:
     print_json(result)
     if args.strict and not result["passed"]:
         raise SystemExit(2)
+
+
+def _cmd_diagnose_smoke(args: argparse.Namespace) -> None:
+    try:
+        result = diagnose_smoke(suite=args.suite, output_root=args.output_root, reference_experiment=args.reference_experiment, strict=args.strict, write_report=args.write_report, force=args.force)
+    except RuntimeError as exc:
+        print_json({"passed": False, "error": str(exc)})
+        raise SystemExit(2) from exc
+    print_json(result)
 
 
 def _cmd_aggregate(args: argparse.Namespace) -> None:

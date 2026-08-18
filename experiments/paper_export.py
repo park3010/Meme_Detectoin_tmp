@@ -45,7 +45,9 @@ def export_research_paper_artifacts(*, output_root: str = "result", latex_root: 
     ]
     (latex / "generated" / "result_macros.tex").write_text("\n".join(macros) + "\n", encoding="utf-8")
     (tables / "supp_per_dataset.tex").write_text(_dataset_table(train_count, valid_count, test_count), encoding="utf-8")
-    summaries = _read_csv(result_root / "aggregates" / "results_mean_std.csv")
+    # Paper exports consume only policy-filtered results. QA/smoke summaries
+    # remain available to the dashboard in results_mean_std.csv.
+    summaries = _read_csv(result_root / "aggregates" / "paper_results_mean_std.csv")
     statuses = _read_csv(result_root / "aggregates" / "experiment_status.csv")
     registry = load_experiment_registry()
     result_macros = _result_macros(summaries)

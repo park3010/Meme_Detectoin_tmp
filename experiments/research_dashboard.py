@@ -29,6 +29,9 @@ def build_research_dashboard(*, output_root: str = "result") -> Path:
         "preflight": _read_json(root / "research_planning" / "protocol_preflight.json"),
         "leakage": _read_json(root / "research_planning" / "fhm_leakage_audit.json"),
         "paper": _read_json(Path("latex/generated/generation_manifest.json")),
+        "diagnostics": _read_json(root / "diagnostics" / "smoke_diagnostics.json"),
+        "readiness": _read_json(root / "diagnostics" / "readiness_decision.json"),
+        "source_paths": {"results": str(results_root), "diagnostics": str(root / "diagnostics")},
     }
     dashboard = root / "dashboard" / "index.html"
     dashboard.parent.mkdir(parents=True, exist_ok=True)
@@ -40,7 +43,7 @@ def _html(payload: dict[str, Any]) -> str:
     data = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>HarMeme to FHM Research Dashboard</title>
+<title>HarMeme to FHM Research Dashboard — QA and Paper Separation</title>
 <style>
 :root{{--bg:#f5f7f8;--ink:#182024;--muted:#5e6b70;--line:#cfd7da;--panel:#fff;--accent:#136f63;--warn:#a34b00}}
 *{{box-sizing:border-box}}body{{margin:0;font:14px/1.45 system-ui,sans-serif;background:var(--bg);color:var(--ink)}}
@@ -52,7 +55,7 @@ main{{padding:16px 28px 40px}}.summary{{display:grid;grid-template-columns:repea
 table{{border-collapse:collapse;width:100%;white-space:nowrap}}th,td{{border-bottom:1px solid #e4e8ea;text-align:left;padding:8px 10px}}th{{position:sticky;top:0;background:#edf2f3}}
 .empty{{padding:28px;color:var(--muted)}}.fail{{color:#a62222;font-weight:650}}.pass{{color:var(--accent);font-weight:650}}
 </style></head><body><header><h1>HarMeme to FHM Research Dashboard</h1><p>Locked source-train / held-out-target protocol. Missing results are shown as status, never as zero.</p></header>
-<nav><button data-tab="overview" class="active">Overview</button><button data-tab="protocol">Dataset protocol</button><button data-tab="main">Main performance</button><button data-tab="structured">Structured</button><button data-tab="ablation">Ablation</button><button data-tab="knowledge">Knowledge</button><button data-tab="evidence">Evidence &amp; rationale</button><button data-tab="errors">Errors</button><button data-tab="external">External readiness</button><button data-tab="paper">Paper readiness</button></nav>
+<nav><button data-tab="overview" class="active">QA / Engineering Smoke — Not paper eligible</button><button data-tab="protocol">Source Validation</button><button data-tab="main">Held-out FHM (execution diagnostics only)</button><button data-tab="structured">Paper Results</button><button data-tab="ablation">Ablation contracts</button><button data-tab="knowledge">Knowledge</button><button data-tab="evidence">Evidence &amp; rationale</button><button data-tab="errors">Errors</button><button data-tab="external">External readiness</button><button data-tab="paper">Paper readiness</button></nav>
 <main><div id="summary" class="summary"></div><section id="overview" class="panel active"></section><section id="protocol" class="panel"></section><section id="main" class="panel"></section><section id="structured" class="panel"></section><section id="ablation" class="panel"></section><section id="knowledge" class="panel"></section><section id="evidence" class="panel"></section><section id="errors" class="panel"></section><section id="external" class="panel"></section><section id="paper" class="panel"></section></main>
 <script>const DATA={data};
 function esc(v){{return String(v??'--').replace(/[&<>\"]/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}}[c]))}}

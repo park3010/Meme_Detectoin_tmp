@@ -63,7 +63,11 @@ def stage_outputs_to_prediction_record(
         "prob_harmful": prob_harmful,
         "gold_harmfulness": supervision.get("harmfulness"),
         "pred_harmfulness": structured.get("harmfulness", {}).get("label"),
-        "harmfulness_score": structured.get("harmfulness", {}).get("score"),
+        # Formal score contract: this is always the positive-class probability,
+        # never predicted-class confidence. Historical artifacts also retain
+        # ``prob_harmful`` and are diagnosed without being rewritten.
+        "harmfulness_score": prob_harmful,
+        "harmfulness_score_semantics": "probability_of_harmful",
         "target": structured.get("target", {}),
         "gold_target": {
             "target_presence": supervision.get("target_presence"),

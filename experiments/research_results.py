@@ -12,6 +12,10 @@ from typing import Any
 
 from experiments.registry import load_experiment_registry
 from experiments.research_schemas import ResearchResultRow
+from experiments.formal_tasks import FORMAL_TASKS
+from experiments.evaluation import evaluate_structured_predictions
+from experiments.research_protocol import sha256_file
+from utils.io import read_jsonl, load_yaml
 from utils.io import write_json, write_jsonl
 
 
@@ -23,19 +27,19 @@ METRIC_ALIASES = {
     "harmfulness_accuracy": ("harmfulness", "accuracy"),
     "harmfulness_macro_f1": ("harmfulness", "macro_f1"),
     "harmfulness_weighted_f1": ("harmfulness", "weighted_f1"),
+    "harmfulness_precision": ("harmfulness", "harmful_class_precision"),
+    "harmfulness_recall": ("harmfulness", "harmful_class_recall"),
     "harmfulness_roc_auc": ("harmfulness", "roc_auc"),
     "target_presence_macro_f1": ("target_presence", "macro_f1"),
     "target_granularity_macro_f1": ("target_granularity", "macro_f1"),
-    "protected_attribute_micro_f1": ("protected_attribute", "micro_f1"),
-    "protected_attribute_macro_f1": ("protected_attribute", "macro_f1"),
     "intent_primary_macro_f1": ("intent_primary", "macro_f1"),
     "tactic_multimodal_relation_macro_f1": ("tactic_multimodal_relation", "macro_f1"),
     "tactic_rhetorical_macro_f1_logits_only": ("tactic_rhetorical", "macro_f1_logits_only"),
     "tactic_rhetorical_micro_f1_logits_only": ("tactic_rhetorical", "micro_f1_logits_only"),
     "tactic_rhetorical_none_f1": ("tactic_rhetorical", "none_f1"),
     "tactic_rhetorical_exact_match_ratio": ("tactic_rhetorical", "exact_match_ratio"),
-    "evidence_hit_at_k": ("evidence", "hit_at_k"),
-    "evidence_precision_at_k": ("evidence", "precision_at_k"),
+    "evidence_hit_at_k": ("combined_evidence_proxy", "weak_text_overlap_hit_at_k"),
+    "evidence_precision_at_k": ("combined_evidence_proxy", "weak_text_overlap_precision_at_k"),
 }
 
 
@@ -48,6 +52,7 @@ def aggregate_research_results(
 
     root = Path(output_root)
     registry = load_experiment_registry(registry_path)
+    policy = load_yaml("configs/paper_result_policy.yaml") if Path("configs/paper_result_policy.yaml").exists() else {}
     experiments = registry.get("experiments", {}) or {}
     long_rows: list[dict[str, Any]] = []
     status_rows: list[dict[str, Any]] = []
@@ -113,6 +118,36 @@ def aggregate_research_results(
                 peak_gpu_memory_mb=None,
                 timestamp=manifest.get("created_at_utc"),
             ).to_dict()
+            role = ((policy.get("suite_roles", {}) or {}).get(suite, {}) or {})
+            formal = task in FORMAL_TASKS
+            runtime = _read_json(run_dir / "runtime.json")
+            row.update({
+                "formal_metric": formal,
+                "metric_source": "logits" if formal else "heuristic_proxy",
+                "paper_eligible_metric": bool(formal and role.get("paper_eligible", False)),
+                "suite_role": role.get("role", "unclassified"),
+                "paper_eligible_run": bool(role.get("paper_eligible", False) and audit.get("passed")),
+                "exclusion_reason": None if formal else "not_in_canonical_formal_task_allowlist",
+                "source_split_manifest_sha256": manifest.get("source_split_manifest_sha256"),
+                "source_split_content_sha256": manifest.get("source_split_content_sha256"),
+                "validation_manifest_sha256": manifest.get("validation_manifest_sha256"),
+                "test_manifest_sha256": manifest.get("fhm_test_manifest_sha256"),
+                "evaluation_manifest_sha256": manifest.get("fhm_test_manifest_sha256"),
+                "evaluation_sample_ids_sha256": _sample_ids_hash(run_dir / "test_predictions.jsonl"),
+                "base_config_sha256": manifest.get("config_sha256"),
+                "resolved_config_sha256": sha256_file(run_dir / "resolved_config.yaml") if (run_dir / "resolved_config.yaml").exists() else None,
+                "ablation_contract_sha256": _ablation_hash(manifest),
+                "registry_version": manifest.get("registry_version"),
+                "protocol_version": policy.get("protocol_version"),
+                "runtime_seconds_total": _float_or_none(runtime.get("wall_seconds")),
+                "training_seconds": _float_or_none(runtime.get("training_seconds")),
+                "validation_seconds": _float_or_none(runtime.get("validation_seconds")),
+                "test_inference_seconds": _float_or_none(runtime.get("fhm_inference_seconds")),
+                "retrieval_seconds": None, "verification_seconds": None, "context_generation_seconds": None, "serialization_seconds": None,
+                "gpu_model": None, "gpu_count": None, "batch_size": None, "inference_sample_count": None,
+                "inference_latency_ms_mean": None, "inference_latency_ms_p50": None, "inference_latency_ms_p95": None, "throughput_samples_per_second": None,
+                "runtime_measurement_status": "not_recorded",
+            })
             long_rows.append(row)
         for label, value in (metrics.get("tactic_rhetorical_per_label_f1_logits_only", {}) or {}).items():
             if not isinstance(value, (int, float)):
@@ -123,6 +158,24 @@ def aggregate_research_results(
                 per_label["metric"] = f"per_label_f1::{label}"
                 per_label["value"] = float(value)
                 long_rows.append(per_label)
+        validation_path = run_dir / "validation_predictions.jsonl"
+        if validation_path.exists():
+            validation = read_jsonl(validation_path)
+            for dataset, domain, subset in (
+                ("harmeme", "pooled", validation),
+                ("harm_c", "covid", [r for r in validation if r.get("dataset_name") == "harm_c" or r.get("domain") == "covid"]),
+                ("harm_p", "politics", [r for r in validation if r.get("dataset_name") == "harm_p" or r.get("domain") == "politics"]),
+            ):
+                derived = evaluate_structured_predictions(subset, disable_tqdm=True)
+                for source_key, (task, metric_name) in METRIC_ALIASES.items():
+                    if source_key not in derived or task not in FORMAL_TASKS:
+                        continue
+                    base = next((r for r in reversed(long_rows) if r["experiment_id"] == experiment_id and r["task"] == task), None)
+                    if not base:
+                        continue
+                    item = dict(base)
+                    item.update({"dataset_family":"harmeme","dataset":dataset,"domain":domain,"domain_role":"source_validation" if domain == "pooled" else "source_validation_domain","annotation_provenance":"normalized_structured_annotation","metric":metric_name,"value":_float_or_none(derived.get(source_key)),"valid_n":_metric_count(derived,task,"valid_n"),"total_n":_metric_count(derived,task,"total_n"),"coverage":_float_or_none(derived.get(f"{task}_coverage")),"evaluation_sample_ids_sha256":_ids_hash([str(r.get("sample_id")) for r in subset]),"evaluation_manifest_sha256":manifest.get("source_split_manifest_sha256"),"test_manifest_sha256":manifest.get("fhm_test_manifest_sha256")})
+                    long_rows.append(item)
     for experiment_id, spec in experiments.items():
         if any(row["experiment_id"] == experiment_id for row in status_rows):
             continue
@@ -144,13 +197,15 @@ def aggregate_research_results(
     (results_root / "all_results.json").write_text(json.dumps(long_rows, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     seed_rows = summarize_seeds(long_rows)
     _write_csv(results_root / "results_mean_std.csv", seed_rows)
+    paper_rows = summarize_seeds([row for row in long_rows if row.get("paper_eligible_run") and row.get("paper_eligible_metric")])
+    _write_csv(results_root / "paper_results_mean_std.csv", paper_rows)
     coverage_rows = coverage_table(long_rows)
     _write_csv(results_root / "coverage_results.csv", coverage_rows)
     _write_csv(results_root / "experiment_status.csv", status_rows)
     significance = paired_significance_eligibility(long_rows)
     _write_csv(results_root / "significance_results.csv", significance)
-    _write_csv(results_root / "main_results.csv", [row for row in long_rows if row.get("family") == "E1" and row.get("task") == "harmfulness"])
-    _write_csv(results_root / "structured_results.csv", [row for row in long_rows if row.get("task") != "harmfulness"])
+    _write_csv(results_root / "main_results.csv", [row for row in long_rows if row.get("family") == "E1" and row.get("task") == "harmfulness" and row.get("paper_eligible_metric")])
+    _write_csv(results_root / "structured_results.csv", [row for row in long_rows if row.get("task") != "harmfulness" and row.get("formal_metric")])
     _write_csv(results_root / "ablation_results.csv", [row for row in long_rows if row.get("group") == "core_ablation"])
     _write_csv(results_root / "knowledge_results.csv", [row for row in long_rows if row.get("group") == "knowledge_comparison"])
     _write_csv(
@@ -322,6 +377,21 @@ def _unique_runs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         key = (row.get("suite"), row.get("experiment_id"), row.get("seed"))
         output.setdefault(key, row)
     return list(output.values())
+
+
+def _ids_hash(ids: list[str]) -> str:
+    import hashlib
+    return hashlib.sha256("\n".join(ids).encode()).hexdigest()
+
+
+def _sample_ids_hash(path: Path) -> str | None:
+    if not path.exists(): return None
+    return _ids_hash([str(row.get("sample_id")) for row in read_jsonl(path)])
+
+
+def _ablation_hash(manifest: dict[str, Any]) -> str:
+    import hashlib
+    return hashlib.sha256(json.dumps(manifest.get("ablation_runtime") or {}, sort_keys=True).encode()).hexdigest()
 
 
 def _write_literature_metadata(path: Path, experiments: dict[str, Any]) -> None:

@@ -152,6 +152,7 @@ def test_config_directory_contains_only_canonical_runtime_files():
         "external_models.yaml",
         "human_evaluation",
         "label_vocab.yaml",
+        "paper_result_policy.yaml",
     ]
 
 

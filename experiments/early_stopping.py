@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import csv
 import math
+import shutil
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
 
 import torch
+
+from experiments.storage_safety import atomic_torch_save
 
 from utils.io import write_json
 
@@ -156,7 +159,24 @@ def save_checkpoint(
         checkpoint["scheduler_state_dict"] = scheduler.state_dict()
     checkpoint_path = Path(path)
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(checkpoint, checkpoint_path)
+    try:
+        atomic_torch_save(checkpoint, checkpoint_path)
+    except Exception as exc:
+        # Best effort only: a tiny manifest is more likely to fit than a
+        # checkpoint and makes the run unmistakably incomplete.
+        try:
+            usage = shutil.disk_usage(checkpoint_path.parent)
+            write_json(checkpoint_path.parent / "checkpoint_failure.json", {
+                "status": "failed_checkpoint_save",
+                "checkpoint": str(checkpoint_path),
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+                "free_bytes": usage.free,
+                "run_complete": False,
+            })
+        except Exception:
+            pass
+        raise
     return checkpoint_path
 
 

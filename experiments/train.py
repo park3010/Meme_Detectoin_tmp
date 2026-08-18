@@ -27,6 +27,7 @@ from experiments.run_manifest import build_data_snapshot, build_run_manifest, co
 from experiments.research_protocol import load_manifest as load_research_manifest, select_manifest_samples, source_tree_sha256
 from experiments.retrieval_corpus import retrieval_run_manifest_fields
 from experiments.splits import build_splits_for_dataset, label_to_int, load_split_file, save_splits, split_samples
+from experiments.storage_safety import storage_preflight
 from experiments.tactic_decoding import (
     extract_gold_tactic_labels,
     extract_tactic_label_order,
@@ -147,6 +148,15 @@ def run_ours_experiment(config: OursRunConfig) -> dict[str, Any]:
     output_dir = Path(config.output_root) / "predictions" / config.dataset_name / config.model_name / str(config.seed)
     output_dir.mkdir(parents=True, exist_ok=True)
     pipeline = HarmfulMemePipeline(cfg).to(device)
+    # Conservative future-run preflight: model + optimizer/checkpoint copies and
+    # same-filesystem temporary-write headroom. Historical runs are untouched.
+    parameter_bytes = sum(parameter.numel() * parameter.element_size() for parameter in pipeline.parameters())
+    storage_state = storage_preflight(
+        output_dir,
+        estimated_checkpoint_bytes=max(parameter_bytes * 4, 64 * 1024 * 1024),
+        checkpoint_count=int(config.save_best) + int(config.save_last),
+    )
+    write_json(output_dir / "storage_preflight.json", storage_state)
     if config.print_components:
         from module.runner import print_pipeline_components
 
