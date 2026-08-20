@@ -16,6 +16,7 @@ from experiments.research_dashboard import build_research_dashboard
 from experiments.research_results import aggregate_research_results
 from experiments.smoke_diagnostics import diagnose_smoke
 from experiments.source_sanity import run_source_sanity
+from experiments.duplicate_adjudication import run_duplicate_adjudication
 from experiments.research_error_analysis import export_research_error_cases
 from experiments.research_human_eval import agreement_report, export_human_evaluation, import_human_ratings, validate_human_ratings
 from experiments.paper_export import check_paper, export_research_paper_artifacts
@@ -124,6 +125,13 @@ def add_research_commands(subparsers: argparse._SubParsersAction, default_config
     source_sanity.add_argument("--force", action="store_true")
     source_sanity.add_argument("--disable-tqdm", action="store_true")
     source_sanity.set_defaults(func=_cmd_source_sanity)
+
+    adjudication = commands.add_parser("duplicate-adjudication", help="Read-only HarMeme duplicate-image adjudication and split-v2 preview.")
+    adjudication.add_argument("--output-root", default="result/source_sanity")
+    adjudication.add_argument("--strict", action=argparse.BooleanOptionalAction, default=False)
+    adjudication.add_argument("--write-report", action="store_true")
+    adjudication.add_argument("--force", action="store_true")
+    adjudication.set_defaults(func=_cmd_duplicate_adjudication)
 
     aggregate = commands.add_parser("aggregate", help="Build canonical long-form and seed-summary results.")
     aggregate.add_argument("--registry", default="configs/experiment_registry.yaml")
@@ -288,6 +296,15 @@ def _cmd_source_sanity(args: argparse.Namespace) -> None:
         result = run_source_sanity(profile=args.profile, output_root=args.output_root, config=args.config, seed=args.seed, device=args.device, strict=args.strict, force=args.force, disable_tqdm=args.disable_tqdm)
     except (RuntimeError, ValueError, FileExistsError) as exc:
         print_json({"passed": False, "error": str(exc), "source_only": True})
+        raise SystemExit(2) from exc
+    print_json(result)
+
+
+def _cmd_duplicate_adjudication(args: argparse.Namespace) -> None:
+    try:
+        result=run_duplicate_adjudication(output_root=args.output_root,strict=args.strict,write_report=args.write_report,force=args.force)
+    except (RuntimeError,ValueError,FileExistsError) as exc:
+        print_json({"passed":False,"error":str(exc),"source_only":True})
         raise SystemExit(2) from exc
     print_json(result)
 
