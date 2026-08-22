@@ -11,6 +11,11 @@ COVID-19 and U.S.\ politics domains while retaining their original
 domain identities.
 The COVID-19 domain contains 3,544 memes and the politics domain
 contains 3,469 memes, resulting in 7,013 source samples.
+Following a source-only integrity audit, we exclude 72 redundant,
+raw-label-conflicting, or structured-label-conflicting records.  The effective
+supervised source pool therefore contains 6,941 samples.  Conflicting duplicate
+groups are excluded in full, decoded-image groups are assigned atomically to a
+split, and source-confirmed shared-image/different-text records are retained.
 The normalized Facebook Hateful Memes collection, hereafter
 \emph{FHM}, contains 9,000 samples and is used exclusively as a
 held-out target benchmark.
@@ -34,8 +39,8 @@ Table~\ref{tab:dataset_protocol} summarizes the dataset roles.
     \end{tabular}
 \end{table}
 
-We construct a single immutable source split using approximately
-80\% of HarMeme for training and 20\% for validation.
+We construct a single immutable, decoded-image-group-aware source split using
+5,552 records for training and 1,389 for validation (approximately 80\%/20\%).
 The split is stratified jointly by the original source domain
 (Harm-C or Harm-P) and the binary harmfulness label.
 The split seed is fixed to 42 and is independent of the model

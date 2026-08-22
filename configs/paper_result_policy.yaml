@@ -1,5 +1,12 @@
 schema_version: paper_result_policy_v1
-protocol_version: harmeme_to_fhm_locked_v2
+protocol_version: harmeme_to_fhm_v2
+required_registry_version: wsdm2027_harmeme_fhm_v2
+required_source_split: result/splits/harmeme/source_split_seed_42_v2.json
+required_retrieval_profile: harmeme_train_v2
+legacy_protocols:
+  harmeme_to_fhm_v1:
+    status: legacy_non_paper
+    paper_eligible: false
 formal_tasks:
   - harmfulness
   - target_presence

@@ -6,16 +6,36 @@ paths:
   normalized_root: dataset/annotation_normalized
   result_root: result
   retrieval_corpus_paths:
-    - dataset/retrieval/harmeme_train_v1/corpus/corpus_texts.jsonl
+    - dataset/retrieval/harmeme_train_v2/corpus/corpus_texts.jsonl
 
 retrieval:
-  active_profile: harmeme_train_v1
+  active_profile: harmeme_train_v2
   require_paper_eligible: true
   profiles:
-    harmeme_train_v1:
+    harmeme_train_v2:
       enabled: true
       paper_eligible: true
       corpus_role: harmeme_train_conditioned
+      protocol_name: harmeme_to_fhm_v2
+      corpus_root: dataset/retrieval/harmeme_train_v2
+      corpus_manifest: dataset/retrieval/harmeme_train_v2/retrieval_manifest.json
+      index_manifest: dataset/retrieval/harmeme_train_v2/index_manifest.json
+      source_split_manifest: result/splits/harmeme/source_split_seed_42_v2.json
+      source_document_snapshot: dataset/source/wiki_common/wiki_corpus.jsonl
+      read_only: true
+      allowed_source_partition: train
+      replay_sources:
+        - dataset_name: harm_c
+          domain: covid
+          query_cache: dataset/source/covid_img+text/rag/cache_all/covid_rag_all_top5.jsonl
+        - dataset_name: harm_p
+          domain: politics
+          query_cache: dataset/source/political_img+text/rag/cache_all/political_rag_all_top5.jsonl
+    harmeme_train_v1:
+      enabled: true
+      paper_eligible: false
+      corpus_role: legacy_non_paper
+      protocol_status: legacy_non_paper
       corpus_root: dataset/retrieval/harmeme_train_v1
       corpus_manifest: dataset/retrieval/harmeme_train_v1/retrieval_manifest.json
       index_manifest: dataset/retrieval/harmeme_train_v1/index_manifest.json

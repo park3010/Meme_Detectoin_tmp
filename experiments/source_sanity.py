@@ -43,7 +43,6 @@ def reject_forbidden_manifest(rows: list[dict[str, Any]]) -> None:
 
 
 def run_source_sanity(*, profile: str, output_root: str = "result/source_sanity", config: str = "configs/config.yaml", seed: int = 42, device: str = "cpu", strict: bool = False, force: bool = False, disable_tqdm: bool = False) -> dict[str, Any]:
-    del disable_tqdm
     if profile not in {"data_integrity", "gradient_check", "overfit_32", "overfit_128", "shuffled_label", "domain_probe", "all"}:
         raise ValueError(f"unknown source-sanity profile: {profile}")
     root = Path(output_root)
@@ -58,9 +57,17 @@ def run_source_sanity(*, profile: str, output_root: str = "result/source_sanity"
         result = audit_source_data(root, seed=seed, force=force)
     elif profile == "gradient_check":
         result = gradient_check(root, config=config, seed=seed, device=device, force=force)
+    elif profile == "overfit_32":
+        from experiments.source_tiny_overfit import run_overfit_32
+        result = run_overfit_32(output_root=str(root), config=config, seed=seed, device=device, force=force, disable_tqdm=disable_tqdm)
     else:
         result = _not_run_profile(root, profile, reason="profile implementation requires a passing CUDA gradient check and explicit sequential launch")
-    _write_readiness(root)
+    # The v2 gradient repair preserves the original source-sanity readiness
+    # artifact; certification is written under gradient_forensics instead.
+    if profile == "overfit_32":
+        write_json(root/"readiness_decision.json",result)
+    elif profile != "gradient_check" or not (root/"gradient_forensics/post_repair_gradient_report.json").is_file():
+        _write_readiness(root)
     if strict and not result.get("passed", False):
         raise RuntimeError(f"source-sanity {profile} blocked: {result.get('blockers') or result.get('reason')}")
     return result
@@ -69,7 +76,7 @@ def run_source_sanity(*, profile: str, output_root: str = "result/source_sanity"
 def audit_source_data(root: Path, *, seed: int = 42, force: bool = False) -> dict[str, Any]:
     out = root / "data_integrity"
     _prepare_output(out, force)
-    split_path = Path("result/splits/harmeme/source_split_seed_42.json")
+    split_path = Path("result/splits/harmeme/source_split_seed_42_v2.json")
     split = json.loads(split_path.read_text(encoding="utf-8"))
     split_rows = {part: list(split.get(part, [])) for part in ("train", "validation")}
     reject_forbidden_manifest(split_rows["train"] + split_rows["validation"])
@@ -101,6 +108,11 @@ def audit_source_data(root: Path, *, seed: int = 42, force: bool = False) -> dic
         records = []
         for sample in dataset.samples:
             sid = str(sample.sample_id); key = f"{dataset_name}::{sid}"
+            # v2 integrity is evaluated over the effective supervised pool;
+            # excluded raw records remain immutable and auditable via the
+            # duplicate-resolution manifest.
+            if key not in membership:
+                continue
             normalized = store.get(dataset_name, sid)
             image = Path(sample.image_path) if sample.image_path else None
             source_annotation_exists = sample.annotation is not None
@@ -182,15 +194,29 @@ def create_sanity_manifests(root: Path, split_rows: dict[str,list[dict[str,Any]]
 
 
 def gradient_check(root: Path, *, config: str, seed: int, device: str, force: bool) -> dict[str,Any]:
-    out=root/"gradient_check"; _prepare_output(out,force)
-    import torch
-    if str(device).startswith("cuda") and not torch.cuda.is_available():
-        report={"profile":"gradient_check","passed":False,"blockers":["BLOCKED_GRADIENT_FLOW"],"reason":"CUDA requested but unavailable; no model or dataset was instantiated","source_only":True,"config":config,"seed":seed}
-        write_json(out/"gradient_report.json",report); (out/"gradient_report.md").write_text("# Gradient check\n\nBlocked before model construction: CUDA is unavailable.\n",encoding="utf-8")
-        for name in ("loss_gradients.csv","parameter_updates.csv","frozen_parameter_audit.csv"): _csv(out/name,[])
-        return report
-    report={"profile":"gradient_check","passed":False,"blockers":["BLOCKED_GRADIENT_FLOW"],"reason":"gradient execution is intentionally unavailable without the requested CUDA path","source_only":True}
-    write_json(out/"gradient_report.json",report); return report
+    del seed
+    from experiments.gradient_forensics import _execute
+    from experiments.source_sanity_gate import atomic_write_json, source_sanity_code_sha256, write_gradient_gate
+    if str(device).startswith("cuda"):
+        import torch
+        if not torch.cuda.is_available():
+            return {"profile":"gradient_check","passed":False,"decision":"BLOCKED_GRADIENT_FLOW","reason":"CUDA requested but unavailable","source_only":True}
+    # Every forced canonical check executes the current graph. Versioned run
+    # evidence avoids rewriting the immutable original failed report.
+    run_id=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")+"_"+source_sanity_code_sha256()[:12]
+    run_dir=root/"gradient_gate_runs"/run_id
+    run_dir.mkdir(parents=True,exist_ok=False)
+    report=_execute(run_dir,config=config,device=device)
+    report={**report,"profile":"gradient_check","source_only":True,"fhm_or_memotion_accessed":False,"scientific_checkpoint_written":False}
+    report_path=run_dir/"gradient_report.json";atomic_write_json(report_path,report)
+    if report.get("passed"):
+        gate=write_gradient_gate(output_root=root,config_path=config,gradient_report_path=report_path,report=report,device_requested=device)
+        report["gradient_gate_path"]=str(root/"gates/gradient_check_gate.json")
+        report["gradient_gate_written"]=True
+        report["gradient_gate_code_sha256"]=gate["code_sha256"]
+    else:
+        report["gradient_gate_written"]=False
+    return report
 
 
 def deterministic_manifest_hash(rows: list[dict[str,Any]]) -> str:

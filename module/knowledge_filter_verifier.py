@@ -143,7 +143,7 @@ class EvidenceAwareRelevanceScorer(nn.Module):
         candidate_vector: torch.Tensor,
         internal_summary: str,
         candidate: KnowledgeCandidate,
-    ) -> tuple[float, torch.Tensor, dict[str, float]]:
+    ) -> tuple[torch.Tensor, torch.Tensor, dict[str, float]]:
         """Score relevance from [q; k; q*k; |q-k|] plus lexical priors."""
 
         if candidate_vector.numel() == 0:
@@ -165,10 +165,10 @@ class EvidenceAwareRelevanceScorer(nn.Module):
             ],
             dim=0,
         )
-        neural = float(torch.sigmoid(self.feature_mlp(feature)).squeeze().detach())
-        score = max(0.0, min(1.0, 0.4 * neural + 0.25 * lexical + 0.2 * retriever_prior + 0.15 * max(0.0, cosine)))
+        neural = torch.sigmoid(self.feature_mlp(feature)).squeeze()
+        score = torch.clamp(0.4 * neural + 0.25 * lexical + 0.2 * retriever_prior + 0.15 * max(0.0, cosine), 0.0, 1.0)
         return score, feature.detach(), {
-            "neural_relevance": neural,
+            "neural_relevance": float(neural.detach()),
             "lexical_relevance": lexical,
             "retriever_prior": retriever_prior,
             "embedding_cosine": cosine,
@@ -389,8 +389,9 @@ class KnowledgeRelevanceFilterVerifier(nn.Module):
                 candidate,
             )
             is_low_relevance_fallback = candidate.source == "fallback" and self.allow_low_relevance_fallback
-            if relevance_score < self.min_relevance and not is_low_relevance_fallback:
-                rejection_records.append(_low_relevance_rejection(candidate, relevance_score, self))
+            relevance_value = float(relevance_score.detach())
+            if relevance_value < self.min_relevance and not is_low_relevance_fallback:
+                rejection_records.append(_low_relevance_rejection(candidate, relevance_value, self))
                 continue
             claim_support = self.verifier.verify_claims(claims, candidate.text)
             support_scores = [float(claim_support[name]["score"]) for name in ["target", "intent", "tactic"]]
@@ -400,20 +401,27 @@ class KnowledgeRelevanceFilterVerifier(nn.Module):
             validity_score, validity_components = self.validator.validate(candidate, internal_summary)
             label_bonus = SUPPORT_LABEL_BONUS.get(support_label, 0.0)
             final_components = {
-                "relevance": FINAL_SCORE_WEIGHTS["relevance"] * relevance_score,
+                "relevance": FINAL_SCORE_WEIGHTS["relevance"] * relevance_value,
                 "support": FINAL_SCORE_WEIGHTS["support"] * support_score,
                 "validity": FINAL_SCORE_WEIGHTS["validity"] * validity_score,
                 "retrieval_prior": FINAL_SCORE_WEIGHTS["retrieval_prior"] * candidate.score,
                 "label_bonus": label_bonus,
             }
-            final_score = max(0.0, min(1.0, sum(final_components.values())))
+            final_score_tensor = torch.clamp(
+                FINAL_SCORE_WEIGHTS["relevance"] * relevance_score
+                + FINAL_SCORE_WEIGHTS["support"] * support_score
+                + FINAL_SCORE_WEIGHTS["validity"] * validity_score
+                + FINAL_SCORE_WEIGHTS["retrieval_prior"] * candidate.score
+                + label_bonus, 0.0, 1.0,
+            )
+            final_score = float(final_score_tensor.detach())
             support_label_by_claim = {name: str(claim_support[name]["label"]) for name in ["target", "intent", "tactic"]}
             provisional.append(
                 VerifiedKnowledgeItem(
                     knowledge_id=candidate.candidate_id,
                     text=candidate.text,
                     source=candidate.source,
-                    relevance_score=float(relevance_score),
+                    relevance_score=relevance_value,
                     support_label=support_label,
                     support_score=float(support_score),
                     validity_score=float(validity_score),
@@ -428,7 +436,7 @@ class KnowledgeRelevanceFilterVerifier(nn.Module):
                         "validity_components": validity_components,
                         "final_score_components": final_components,
                         "raw_score_components": {
-                            "relevance": float(relevance_score),
+                            "relevance": relevance_value,
                             "support": float(support_score),
                             "validity": float(validity_score),
                             "retrieval_prior": float(candidate.score),
@@ -454,10 +462,10 @@ class KnowledgeRelevanceFilterVerifier(nn.Module):
                 )
             )
             support_rows_by_id[candidate.candidate_id] = [
-                float(relevance_score),
-                *support_scores,
-                float(validity_score),
-                float(final_score),
+                relevance_score,
+                *[relevance_score.new_tensor(value) for value in support_scores],
+                relevance_score.new_tensor(validity_score),
+                final_score_tensor,
             ]
 
         verified = self.reducer.reduce_with_tokens(provisional, token_by_id, top_k=self.top_k)
@@ -468,8 +476,9 @@ class KnowledgeRelevanceFilterVerifier(nn.Module):
 
         verified_tokens = torch.stack(token_rows, dim=0) if token_rows else torch.zeros(0, self.hidden_dim, device=device)
         support_rows = [support_rows_by_id.get(item.knowledge_id, [0.0] * 6) for item in verified]
-        support_matrix = torch.tensor(support_rows, dtype=torch.float32, device=device) if support_rows else torch.zeros(0, 6, device=device)
-        final_scores = torch.tensor([item.final_score for item in verified], dtype=torch.float32, device=device)
+        support_matrix = torch.stack([torch.stack(row) for row in support_rows], dim=0) if support_rows else torch.zeros(0, 6, device=device)
+        final_by_id = {item.knowledge_id: support_rows_by_id[item.knowledge_id][-1] for item in verified}
+        final_scores = torch.stack([final_by_id[item.knowledge_id] for item in verified]) if verified else torch.zeros(0, device=device)
         return StageCOutput(
             sample_id=stage_a.sample_id,
             dataset_name=stage_a.dataset_name,

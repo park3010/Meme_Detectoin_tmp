@@ -247,7 +247,9 @@ def audit_paper_protocol_manifest(
 ) -> dict[str, Any]:
     """Validate additive provenance required only by locked paper runs."""
 
-    if manifest.get("paper_protocol") != "harmeme_to_fhm_v1":
+    if manifest.get("paper_protocol") == "harmeme_to_fhm_v1":
+        return {"required": True, "passed": False, "missing_fields": ["legacy_protocol_selected_for_paper_run"]}
+    if manifest.get("paper_protocol") != "harmeme_to_fhm_v2":
         return {"required": False, "passed": True, "missing_fields": []}
     required_fields = {
         "source_train_manifest_path",
@@ -296,8 +298,8 @@ def audit_paper_protocol_manifest(
     }
     if retrieval_required:
         missing.extend(field for field in retrieval_fields if manifest.get(field) in {None, ""})
-        if manifest.get("retrieval_profile") != "harmeme_train_v1":
-            missing.append("retrieval_profile=harmeme_train_v1")
+        if manifest.get("retrieval_profile") != "harmeme_train_v2":
+            missing.append("retrieval_profile=harmeme_train_v2")
         if manifest.get("retrieval_corpus_role") != "harmeme_train_conditioned":
             missing.append("retrieval_corpus_role=harmeme_train_conditioned")
         if manifest.get("retrieval_paper_eligible") is not True:

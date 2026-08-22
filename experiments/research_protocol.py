@@ -15,13 +15,13 @@ from experiments.splits import label_to_int
 from utils.io import load_yaml, write_json
 
 
-PROTOCOL_NAME = "harmeme_to_fhm_v1"
+PROTOCOL_NAME = "harmeme_to_fhm_v2"
 SOURCE_DATASETS = ("harm_c", "harm_p")
 HELDOUT_DATASET = "facebook"
 DISABLED_DATASETS = ("memotion",)
 DEFAULT_SPLIT_SEED = 42
 DEFAULT_TRAIN_RATIO = 0.8
-DEFAULT_SOURCE_MANIFEST = Path("result/splits/harmeme/source_split_seed_42.json")
+DEFAULT_SOURCE_MANIFEST = Path("result/splits/harmeme/source_split_seed_42_v2.json")
 DEFAULT_FHM_MANIFEST = Path("result/splits/fhm/heldout_test_manifest.json")
 
 
@@ -256,7 +256,7 @@ def audit_fhm_leakage(
                 errors.append(
                     {
                         "code": "retrieval_legacy_profile_selected",
-                        "message": "Strict paper protocol requires harmeme_train_v1.",
+                        "message": f"Strict paper protocol requires {CANONICAL_PROFILE}.",
                     }
                 )
             for violation in canonical.get("errors", []):

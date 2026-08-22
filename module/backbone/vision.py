@@ -275,7 +275,6 @@ class CLIPWrapper(nn.Module):
             self._mark_compatibility_failure(f"manual_checkpoint_load_failed: {_short_error(exc)}")
             return False
 
-    @torch.no_grad()
     def encode_image(self, image_path: str | Path | None) -> torch.Tensor:
         """Encode a whole image to the configured hidden dimension."""
 
@@ -292,7 +291,6 @@ class CLIPWrapper(nn.Module):
                 logger.warning("CLIP image encoding failed for %s; falling back: %s", image_path, exc)
         return fallback_image_embedding(image_path, dim=self.hidden_dim).to(target_device)
 
-    @torch.no_grad()
     def encode_text(self, text: str) -> torch.Tensor:
         """Encode text in the same CLIP space used for images.
 
@@ -321,7 +319,6 @@ class CLIPWrapper(nn.Module):
                 logger.warning("CLIP text encoding failed; falling back: %s", exc)
         return F.normalize(hashed_vector(f"clip-text:{text or ''}", dim=self.hidden_dim), dim=0).to(target_device)
 
-    @torch.no_grad()
     def encode_rois(self, image_path: str | Path | None, boxes: list[tuple[float, float, float, float]]) -> torch.Tensor:
         """Encode ROI boxes; fallback appends box coordinates to the image identity."""
 
@@ -341,7 +338,9 @@ class CLIPWrapper(nn.Module):
         if feature.numel() == self.hidden_dim:
             return F.normalize(feature, dim=0)
         if self._projection is None or self._projection.in_features != feature.numel():
+            trainable = any(parameter.requires_grad for name, parameter in self.named_parameters() if not name.startswith("_projection"))
             self._projection = nn.Linear(feature.numel(), self.hidden_dim).to(feature.device)
+            self._projection.requires_grad_(trainable)
         else:
             self._projection = self._projection.to(feature.device)
         projected = self._projection(feature.unsqueeze(0)).squeeze(0)

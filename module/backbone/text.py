@@ -138,7 +138,6 @@ class TextEncoderWrapper(nn.Module):
             self._mark_load_error(_short_error(exc))
             logger.info("Transformers encoder unavailable; using hashing fallback: %s", exc)
 
-    @torch.no_grad()
     def encode(self, text: str) -> tuple[torch.Tensor, torch.Tensor, list[str]]:
         """Return global embedding, token embeddings, and token strings."""
 
@@ -171,7 +170,9 @@ class TextEncoderWrapper(nn.Module):
         if matrix.size(-1) == self.hidden_dim:
             return F.normalize(matrix, dim=-1)
         if self._projection is None or self._projection.in_features != matrix.size(-1):
+            trainable = any(parameter.requires_grad for name, parameter in self.named_parameters() if not name.startswith("_projection"))
             self._projection = nn.Linear(matrix.size(-1), self.hidden_dim).to(matrix.device)
+            self._projection.requires_grad_(trainable)
         else:
             self._projection = self._projection.to(matrix.device)
         return F.normalize(self._projection(matrix), dim=-1)

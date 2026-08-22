@@ -25,7 +25,7 @@ def export_research_paper_artifacts(*, output_root: str = "result", latex_root: 
     latex = Path(latex_root)
     tables = latex / "tables" / "generated"
     tables.mkdir(parents=True, exist_ok=True)
-    source_path = result_root / "splits" / "harmeme" / "source_split_seed_42.json"
+    source_path = result_root / "splits" / "harmeme" / "source_split_seed_42_v2.json"
     fhm_path = result_root / "splits" / "fhm" / "heldout_test_manifest.json"
     source = load_manifest(source_path) if source_path.exists() else {}
     fhm = load_manifest(fhm_path) if fhm_path.exists() else {}

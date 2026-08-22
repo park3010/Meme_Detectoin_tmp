@@ -128,6 +128,11 @@ reproduction. It is configured as `legacy_wiki_common` with role
 contains Facebook and Memotion provenance and is not bound to the immutable
 source split. It must never pass strict audit or become an automatic fallback.
 
+The active `harmeme_train_v2` profile is rebuilt offline from all 5,552 split-v2
+training query origins and is cryptographically bound to the split-v2 manifest.
+Its corpus and both indexes are newly generated; v1 is preserved as
+`legacy_non_paper` and is never copied as an index binary into v2.
+
 ## Static External Corpus Mode
 
 A future resource may use role `static_external_dataset_independent` only if

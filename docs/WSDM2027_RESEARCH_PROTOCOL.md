@@ -2,7 +2,7 @@
 
 ## Locked Domain Roles
 
-The canonical paper protocol is `harmeme_to_fhm_v1`.
+The canonical paper protocol is `harmeme_to_fhm_v2`.
 
 | Repository dataset | Paper name | Role | Structured provenance |
 |---|---|---|---|
@@ -11,9 +11,9 @@ The canonical paper protocol is `harmeme_to_fhm_v1`.
 | `facebook` | FHM | held-out target test only | agent-silver evaluation labels |
 | `memotion` | Memotion | disabled for paper runs | not applicable |
 
-All 7,013 HarMeme rows with original binary labels are eligible for harmfulness training/evaluation. Structured losses are mask-aware and use only clean-eligible normalized fields. All 9,000 FHM rows are eligible for harmfulness testing; structured FHM metrics report valid-N and coverage.
+HarMeme contains 7,013 raw source records. After a source-only integrity audit, we exclude 72 redundant, raw-label-conflicting, or structured-label-conflicting records and construct a group-aware source split over 6,941 retained samples. Structured losses are mask-aware and use only clean-eligible normalized fields. Raw-source conflict groups are excluded in full because no supervised annotation can be selected without adjudicating against the source. Decoded-image groups are split atomically; source-confirmed shared-image/different-text records remain distinct multimodal samples.
 
-The source split is fixed at seed 42 and stratified by original HarMeme dataset and harmfulness. Model seeds are `42, 52, 123, 777, 2026`; they never regenerate the split. Thresholds, early stopping, prompt choices, and model selection use HarMeme validation only.
+The v2 source split is fixed at seed 42, group-aware by decoded image, and approximately stratified by original HarMeme dataset and harmfulness. It contains 5,552 training and 1,389 validation records. Model seeds are `42, 52, 123, 777, 2026`; they never regenerate the split. Thresholds, early stopping, prompt choices, and model selection use HarMeme validation only. Split-v1 results are historical engineering artifacts and are not paper eligible.
 
 ## Immutable Inputs
 

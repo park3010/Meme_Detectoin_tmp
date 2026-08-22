@@ -17,6 +17,9 @@ from experiments.research_results import aggregate_research_results
 from experiments.smoke_diagnostics import diagnose_smoke
 from experiments.source_sanity import run_source_sanity
 from experiments.duplicate_adjudication import run_duplicate_adjudication
+from experiments.protocol_v2 import audit_source_split_v2, build_protocol_v2
+from experiments.gradient_forensics import run_gradient_forensics
+from experiments.tiny_overfit_forensics import run_tiny_overfit_forensics
 from experiments.research_error_analysis import export_research_error_cases
 from experiments.research_human_eval import agreement_report, export_human_evaluation, import_human_ratings, validate_human_ratings
 from experiments.paper_export import check_paper, export_research_paper_artifacts
@@ -132,6 +135,33 @@ def add_research_commands(subparsers: argparse._SubParsersAction, default_config
     adjudication.add_argument("--write-report", action="store_true")
     adjudication.add_argument("--force", action="store_true")
     adjudication.set_defaults(func=_cmd_duplicate_adjudication)
+
+    protocol_v2 = commands.add_parser("protocol-v2-build", help="Build the approved source-only HarMeme split-v2 migration artifacts.")
+    protocol_v2.add_argument("--output-root", default="result")
+    protocol_v2.add_argument("--resolution-root", required=True)
+    protocol_v2.add_argument("--strict", action=argparse.BooleanOptionalAction, default=True)
+    protocol_v2.set_defaults(func=_cmd_protocol_v2_build)
+
+    split_audit = commands.add_parser("source-split-audit", help="Audit a versioned group-aware HarMeme source split.")
+    split_audit.add_argument("--manifest", required=True)
+    split_audit.add_argument("--strict", action=argparse.BooleanOptionalAction, default=True)
+    split_audit.set_defaults(func=_cmd_source_split_audit)
+
+    gradient_forensics = commands.add_parser("gradient-forensics", help="Run source-only v2 formal-head gradient and optimizer forensics.")
+    gradient_forensics.add_argument("--output-root", default="result/source_sanity_v2")
+    gradient_forensics.add_argument("--config", default=default_config)
+    gradient_forensics.add_argument("--device", default="cuda")
+    gradient_forensics.add_argument("--strict", action=argparse.BooleanOptionalAction, default=True)
+    gradient_forensics.add_argument("--write-report", action="store_true")
+    gradient_forensics.set_defaults(func=_cmd_gradient_forensics)
+
+    tiny_forensics = commands.add_parser("tiny-overfit-forensics", help="Run source-only tiny-overfit representation and lifecycle forensics.")
+    tiny_forensics.add_argument("--output-root", default="result/source_sanity_v2")
+    tiny_forensics.add_argument("--config", default=default_config)
+    tiny_forensics.add_argument("--device", default="cuda")
+    tiny_forensics.add_argument("--strict", action=argparse.BooleanOptionalAction, default=True)
+    tiny_forensics.add_argument("--write-report", action="store_true")
+    tiny_forensics.set_defaults(func=_cmd_tiny_overfit_forensics)
 
     aggregate = commands.add_parser("aggregate", help="Build canonical long-form and seed-summary results.")
     aggregate.add_argument("--registry", default="configs/experiment_registry.yaml")
@@ -303,6 +333,40 @@ def _cmd_source_sanity(args: argparse.Namespace) -> None:
 def _cmd_duplicate_adjudication(args: argparse.Namespace) -> None:
     try:
         result=run_duplicate_adjudication(output_root=args.output_root,strict=args.strict,write_report=args.write_report,force=args.force)
+    except (RuntimeError,ValueError,FileExistsError) as exc:
+        print_json({"passed":False,"error":str(exc),"source_only":True})
+        raise SystemExit(2) from exc
+    print_json(result)
+
+
+def _cmd_protocol_v2_build(args: argparse.Namespace) -> None:
+    try:
+        result = build_protocol_v2(resolution_root=args.resolution_root, output_root=args.output_root, strict=args.strict)
+    except RuntimeError as exc:
+        print_json({"passed": False, "error": str(exc), "source_only": True})
+        raise SystemExit(2) from exc
+    print_json(result)
+
+
+def _cmd_source_split_audit(args: argparse.Namespace) -> None:
+    result = audit_source_split_v2(args.manifest)
+    print_json(result)
+    if args.strict and not result["passed"]:
+        raise SystemExit(2)
+
+
+def _cmd_gradient_forensics(args: argparse.Namespace) -> None:
+    try:
+        result=run_gradient_forensics(output_root=args.output_root,config=args.config,device=args.device,strict=args.strict,write_report=args.write_report)
+    except (RuntimeError,ValueError,FileExistsError) as exc:
+        print_json({"passed":False,"error":str(exc),"source_only":True})
+        raise SystemExit(2) from exc
+    print_json(result)
+
+
+def _cmd_tiny_overfit_forensics(args: argparse.Namespace) -> None:
+    try:
+        result=run_tiny_overfit_forensics(output_root=args.output_root,config=args.config,device=args.device,strict=args.strict,write_report=args.write_report)
     except (RuntimeError,ValueError,FileExistsError) as exc:
         print_json({"passed":False,"error":str(exc),"source_only":True})
         raise SystemExit(2) from exc

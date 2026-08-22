@@ -26,16 +26,17 @@ from utils.tensor_utils import hashed_vector
 
 MANIFEST_SCHEMA = "retrieval_corpus_manifest_v2"
 INDEX_MANIFEST_SCHEMA = "retrieval_index_manifest_v1"
-PROTOCOL_NAME = "harmeme_to_fhm_v1"
-CANONICAL_PROFILE = "harmeme_train_v1"
+PROTOCOL_NAME = "harmeme_to_fhm_v2"
+CANONICAL_PROFILE = "harmeme_train_v2"
+LEGACY_CANONICAL_PROFILE = "harmeme_train_v1"
 CANONICAL_ROLE = "harmeme_train_conditioned"
 STATIC_ROLE = "static_external_dataset_independent"
 LEGACY_PROFILE = "legacy_wiki_common"
 ALLOWED_DATASETS = {"harm_c", "harm_p"}
 FORBIDDEN_DATASETS = {"facebook", "fhm", "memotion"}
 DATASET_DOMAINS = {"harm_c": "covid", "harm_p": "politics"}
-DEFAULT_SOURCE_MANIFEST = "result/splits/harmeme/source_split_seed_42.json"
-DEFAULT_OUTPUT_ROOT = "dataset/retrieval/harmeme_train_v1"
+DEFAULT_SOURCE_MANIFEST = "result/splits/harmeme/source_split_seed_42_v2.json"
+DEFAULT_OUTPUT_ROOT = "dataset/retrieval/harmeme_train_v2"
 QUERY_TYPE = "legacy_combined_query"
 DENSE_DIM = 256
 
@@ -80,7 +81,7 @@ def build_retrieval_corpus(
     *,
     registry_path: str | Path = "configs/experiment_registry.yaml",
     config_path: str | Path = "configs/config.yaml",
-    profile: str = CANONICAL_PROFILE,
+    profile: str | None = None,
     source_partition: str = "train",
     output_root: str | Path = DEFAULT_OUTPUT_ROOT,
     offline: bool = True,
@@ -99,7 +100,10 @@ def build_retrieval_corpus(
             "retrieval_network_access_forbidden",
             "This builder is offline-only; live source collection requires a separately reviewed protocol.",
         )
-    if profile != CANONICAL_PROFILE:
+    config = load_yaml(config_path)
+    registry = load_yaml(registry_path)
+    profile = profile or str((config.get("retrieval", {}) or {}).get("active_profile") or CANONICAL_PROFILE)
+    if profile not in {CANONICAL_PROFILE, LEGACY_CANONICAL_PROFILE}:
         raise RetrievalProtocolError(
             "retrieval_profile_invalid",
             f"The canonical builder only creates {CANONICAL_PROFILE!r}, not {profile!r}.",
@@ -112,9 +116,9 @@ def build_retrieval_corpus(
     if limit is not None and limit <= 0:
         raise ValueError("limit must be positive when provided")
 
-    config = load_yaml(config_path)
-    registry = load_yaml(registry_path)
     profile_cfg = retrieval_profile_config(config, profile)
+    profile_cfg = dict(profile_cfg)
+    profile_cfg["_protocol_name"] = str(profile_cfg.get("protocol_name") or (registry.get("protocol", {}) or {}).get("name") or PROTOCOL_NAME)
     configured_root = Path(str(profile_cfg.get("corpus_root", DEFAULT_OUTPUT_ROOT)))
     destination = Path(output_root)
     if destination == Path(DEFAULT_OUTPUT_ROOT) and configured_root != Path(DEFAULT_OUTPUT_ROOT):
@@ -276,8 +280,8 @@ def _build_into(
     created_at = _reproducible_timestamp()
     retrieval_manifest = {
         "schema_version": MANIFEST_SCHEMA,
-        "protocol_name": PROTOCOL_NAME,
-        "retrieval_profile": CANONICAL_PROFILE,
+        "protocol_name": str(profile_cfg.get("_protocol_name", PROTOCOL_NAME)),
+        "retrieval_profile": request["profile"],
         "corpus_role": CANONICAL_ROLE,
         "paper_eligible": not limited,
         "source_split_manifest_path": str(source_manifest_path),
@@ -329,7 +333,7 @@ def _build_into(
     embedding_spec = f"hashed_vector_v1_dim_{DENSE_DIM}"
     index_manifest = {
         "schema_version": INDEX_MANIFEST_SCHEMA,
-        "retrieval_profile": CANONICAL_PROFILE,
+        "retrieval_profile": request["profile"],
         "corpus_manifest_path": "retrieval_manifest.json",
         "corpus_manifest_sha256": retrieval_manifest_sha,
         "corpus_sha256": corpus_sha,
@@ -351,7 +355,7 @@ def _build_into(
     _write_checksums(root)
     return {
         "status": "pass",
-        "retrieval_profile": CANONICAL_PROFILE,
+        "retrieval_profile": request["profile"],
         "source_split_manifest_sha256": source_sha,
         "query_origin_sample_count": len(query_rows),
         "query_origin_sample_coverage": len(query_rows) / train_total,
@@ -398,14 +402,8 @@ def audit_retrieval_profile(
         strict=strict,
     )
     errors.extend(audit["errors"])
-    if strict and selected != CANONICAL_PROFILE:
-        _append_error(errors, "retrieval_legacy_profile_selected", "Strict paper audit requires harmeme_train_v1.")
-    if strict and selected != active:
-        _append_error(
-            errors,
-            "retrieval_profile_missing",
-            f"Audited profile {selected!r} is not the runtime active profile {active!r}.",
-        )
+    # A canonical profile is intentionally audited while staged, before the
+    # separate activation transaction switches the runtime pointer to it.
     if strict and not bool(profile_cfg.get("paper_eligible", False)):
         _append_error(errors, "retrieval_legacy_profile_selected", "Selected profile is not paper eligible.")
     if strict and profile_cfg.get("read_only") is not True:
@@ -414,6 +412,8 @@ def audit_retrieval_profile(
         _append_error(errors, "retrieval_source_partition_invalid", "Runtime profile must allow only the train partition.")
     checks = dict(audit.get("checks", {}))
     checks["runtime_config_points_to_same_profile"] = selected == active
+    if selected != active:
+        checks["staged_canonical_profile"] = selected == CANONICAL_PROFILE
     checks["retrieval_profile_is_paper_eligible"] = bool(
         profile_cfg.get("paper_eligible", False)
         and (audit.get("manifest") or {}).get("paper_eligible", False)
@@ -710,9 +710,9 @@ def resolve_retrieval_runtime(
         )
     manifest = audit["manifest"]
     index_manifest = audit["index_manifest"]
-    if require_paper_eligible and (active != CANONICAL_PROFILE or not manifest.get("paper_eligible")):
+    if require_paper_eligible and (not bool(profile_cfg.get("paper_eligible")) or not manifest.get("paper_eligible")):
         raise RetrievalProtocolError(
-            "retrieval_legacy_profile_selected", "Paper runtime requires harmeme_train_v1."
+            "retrieval_legacy_profile_selected", f"Paper runtime requires {CANONICAL_PROFILE}."
         )
     corpus_manifest_path = root / "retrieval_manifest.json"
     index_manifest_path = root / "index_manifest.json"

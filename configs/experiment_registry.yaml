@@ -1,22 +1,29 @@
 schema_version: research_experiment_registry_v1
-registry_version: wsmd2027_harmeme_fhm_20260714_v1
+registry_version: wsdm2027_harmeme_fhm_v2
 
 protocol:
-  name: harmeme_to_fhm_v1
+  name: harmeme_to_fhm_v2
   split_seed: 42
   source_train_datasets: [harm_c, harm_p]
   source_validation_datasets: [harm_c, harm_p]
   heldout_test_datasets: [facebook]
   disabled_datasets: [memotion]
   label_set: clean
-  source_split_manifest: result/splits/harmeme/source_split_seed_42.json
+  source_split_manifest: result/splits/harmeme/source_split_seed_42_v2.json
+  duplicate_resolution_manifest: result/splits/harmeme/duplicate_resolution_manifest_v1.json
   heldout_test_manifest: result/splits/fhm/heldout_test_manifest.json
-  retrieval_profile: harmeme_train_v1
+  retrieval_profile: harmeme_train_v2
   fhm_structured_annotation_provenance: agent_silver_structured_evaluation
   model_seeds:
     smoke: [42]
     one_seed: [42]
     five_seed: [42, 52, 123, 777, 2026]
+  legacy_protocols:
+    harmeme_to_fhm_v1:
+      status: legacy_non_paper
+      paper_eligible: false
+      source_split_manifest: result/splits/harmeme/source_split_seed_42.json
+      retrieval_profile: harmeme_train_v1
 
 knowledge_sources:
   wikipedia_wikidata: {enabled: true, status: ready, reason: canonical corpus is replayed from immutable HarMeme-train query caches}
@@ -41,7 +48,7 @@ experiments:
     heldout_test_datasets: [facebook]
     tasks: [harmfulness]
     seeds: [42, 52, 123, 777, 2026]
-    split_manifest: result/splits/harmeme/source_split_seed_42.json
+    split_manifest: result/splits/harmeme/source_split_seed_42_v2.json
     dependencies: [local_deberta_v3_base]
     execution_type: supervised_train
     environment_name: meme_cikm
@@ -67,7 +74,7 @@ experiments:
     heldout_test_datasets: [facebook]
     tasks: [harmfulness]
     seeds: [42, 52, 123, 777, 2026]
-    split_manifest: result/splits/harmeme/source_split_seed_42.json
+    split_manifest: result/splits/harmeme/source_split_seed_42_v2.json
     dependencies: [local_openclip_vit_b_32]
     execution_type: supervised_train
     environment_name: meme_cikm
@@ -93,7 +100,7 @@ experiments:
     heldout_test_datasets: [facebook]
     tasks: [harmfulness]
     seeds: [42, 52, 123, 777, 2026]
-    split_manifest: result/splits/harmeme/source_split_seed_42.json
+    split_manifest: result/splits/harmeme/source_split_seed_42_v2.json
     dependencies: [local_openclip_vit_b_32, local_deberta_v3_base]
     execution_type: supervised_train
     environment_name: meme_cikm
@@ -119,7 +126,7 @@ experiments:
     heldout_test_datasets: [facebook]
     tasks: [harmfulness]
     seeds: [42, 52, 123, 777, 2026]
-    split_manifest: result/splits/harmeme/source_split_seed_42.json
+    split_manifest: result/splits/harmeme/source_split_seed_42_v2.json
     dependencies: [local_openclip_vit_b_32]
     execution_type: supervised_train
     environment_name: meme_cikm
@@ -145,7 +152,7 @@ experiments:
     heldout_test_datasets: [facebook]
     tasks: [harmfulness, target_presence, target_granularity, intent_primary, tactic_rhetorical, tactic_multimodal_relation]
     seeds: [42, 52, 123, 777, 2026]
-    split_manifest: result/splits/harmeme/source_split_seed_42.json
+    split_manifest: result/splits/harmeme/source_split_seed_42_v2.json
     dependencies: [local_openclip_vit_b_32, local_deberta_v3_base, leakage_safe_retrieval_corpus]
     execution_type: supervised_train
     environment_name: meme_cikm
@@ -171,7 +178,7 @@ experiments:
     heldout_test_datasets: [facebook]
     tasks: [harmfulness, target_presence, target_granularity, intent_primary, tactic_rhetorical, tactic_multimodal_relation]
     seeds: [42, 52, 123, 777, 2026]
-    split_manifest: result/splits/harmeme/source_split_seed_42.json
+    split_manifest: result/splits/harmeme/source_split_seed_42_v2.json
     dependencies: [local_openclip_vit_b_32, local_deberta_v3_base]
     execution_type: supervised_train_ablation
     environment_name: meme_cikm
@@ -210,7 +217,7 @@ experiments:
     heldout_test_datasets: [facebook]
     tasks: [harmfulness, target_presence, target_granularity, intent_primary, tactic_rhetorical, tactic_multimodal_relation]
     seeds: [42]
-    split_manifest: result/splits/harmeme/source_split_seed_42.json
+    split_manifest: result/splits/harmeme/source_split_seed_42_v2.json
     dependencies: [train_time_knowledge_mode_implementation]
     execution_type: evaluation_time_diagnostic
     environment_name: meme_cikm
@@ -249,7 +256,7 @@ experiments:
     heldout_test_datasets: [facebook]
     tasks: [target_presence, target_granularity, intent_primary, tactic_rhetorical, tactic_multimodal_relation]
     seeds: [42]
-    split_manifest: result/splits/harmeme/source_split_seed_42.json
+    split_manifest: result/splits/harmeme/source_split_seed_42_v2.json
     dependencies: [completed_applicable_model_predictions]
     execution_type: posthoc_silver_evaluation
     environment_name: meme_cikm
@@ -275,7 +282,7 @@ experiments:
     heldout_test_datasets: [facebook]
     tasks: [evidence, rationale, verifier]
     seeds: [42]
-    split_manifest: result/splits/harmeme/source_split_seed_42.json
+    split_manifest: result/splits/harmeme/source_split_seed_42_v2.json
     dependencies: [completed_ours_full_predictions]
     execution_type: posthoc_proxy_analysis
     environment_name: meme_cikm
@@ -301,7 +308,7 @@ experiments:
     heldout_test_datasets: [facebook]
     tasks: [evidence]
     seeds: [42]
-    split_manifest: result/splits/harmeme/source_split_seed_42.json
+    split_manifest: result/splits/harmeme/source_split_seed_42_v2.json
     dependencies: [independent_human_raters]
     execution_type: human_annotation
     environment_name: human_eval
@@ -337,7 +344,7 @@ experiments:
     heldout_test_datasets: [facebook]
     tasks: [harmfulness, target_presence, intent_primary, tactic_rhetorical, tactic_multimodal_relation]
     seeds: [42]
-    split_manifest: result/splits/harmeme/source_split_seed_42.json
+    split_manifest: result/splits/harmeme/source_split_seed_42_v2.json
     dependencies: [completed_ours_full_predictions]
     execution_type: posthoc_error_export
     environment_name: meme_cikm

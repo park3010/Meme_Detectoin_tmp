@@ -148,6 +148,7 @@ def run_ours_experiment(config: OursRunConfig) -> dict[str, Any]:
     output_dir = Path(config.output_root) / "predictions" / config.dataset_name / config.model_name / str(config.seed)
     output_dir.mkdir(parents=True, exist_ok=True)
     pipeline = HarmfulMemePipeline(cfg).to(device)
+    materialize_trainable_projections(pipeline, materialized.get("train", []))
     # Conservative future-run preflight: model + optimizer/checkpoint copies and
     # same-filesystem temporary-write headroom. Historical runs are untouched.
     parameter_bytes = sum(parameter.numel() * parameter.element_size() for parameter in pipeline.parameters())
@@ -496,9 +497,30 @@ def configure_trainable_parameters(pipeline: HarmfulMemePipeline, config: OursRu
     if config.train_relevance_mlp and hasattr(pipeline.stage_c.relevance, "feature_mlp"):
         for param in pipeline.stage_c.relevance.feature_mlp.parameters():
             param.requires_grad = True
+    # The dimensionality adapters are newly initialized framework parameters,
+    # not pretrained backbone weights. They must be materialized before the
+    # optimizer and remain trainable when the heavy encoders are frozen.
+    for name, param in pipeline.named_parameters():
+        if "._projection." in name:
+            param.requires_grad = True
     if not config.freeze_backbones:
         for param in pipeline.parameters():
             param.requires_grad = True
+
+
+def materialize_trainable_projections(pipeline: HarmfulMemePipeline, samples: list[dict[str, Any]]) -> list[str]:
+    """Materialize all lazy Stage-A projection adapters before optimizer construction."""
+    expected=("stage_a.visual_encoder.clip._projection","stage_a.text_encoder.encoder._projection","stage_a.local_extractor.roi_encoder._projection")
+    prior_mode=pipeline.training
+    pipeline.eval()
+    with torch.no_grad():
+        for sample in samples:
+            pipeline(sample,run_until="a")
+            if all(dict(pipeline.named_modules()).get(name) is not None for name in expected): break
+    pipeline.train(prior_mode)
+    # A backend whose native output already equals hidden_dim legitimately
+    # needs no adapter (notably the deterministic offline test fallback).
+    return [name for name in expected if dict(pipeline.named_modules()).get(name) is not None]
 
 
 def _load_or_create_ours_splits(config: OursRunConfig, dataset: Any, cfg: dict[str, Any]) -> dict[str, list[str]]:
@@ -1208,7 +1230,7 @@ def _research_manifest_fields(config: OursRunConfig | BaselineRunConfig) -> dict
     source_path = Path(config.source_split_manifest)
     fhm_path = Path(config.heldout_test_manifest) if config.heldout_test_manifest else None
     return {
-        "paper_protocol": "harmeme_to_fhm_v1",
+        "paper_protocol": "harmeme_to_fhm_v2",
         "registry_version": "wsmd2027_harmeme_fhm_20260714_v1",
         "source_train_manifest_path": str(source_path),
         "source_train_manifest_sha256": sha256_file(source_path),
