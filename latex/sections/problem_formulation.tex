@@ -8,13 +8,14 @@ A meme is a multimodal instance
 $\mathcal{M}=(I,T)$, where $I$ denotes the meme image and
 $T$ denotes the text extracted from the image using optical
 character recognition.
-Conventional harmful meme detection predicts a binary label from
-$\mathcal{M}$.
-In contrast, we formulate meme understanding as a structured
-interpretation problem that jointly identifies whether the meme is
-harmful, who or what it targets, what communicative intent it
-expresses, and which rhetorical and multimodal strategies construct
-its meaning.
+Conventional harmful meme detection typically maps
+$\mathcal{M}$ to a binary harmfulness label.
+We instead formulate harmful meme understanding as a
+\emph{structured interpretation} problem that jointly identifies
+whether the meme is harmful, whether and how a target is expressed,
+what primary communicative intent it conveys, which rhetorical
+strategies it employs, and how the image and text interact to
+construct its meaning.
 
 For each meme, the model predicts
 
@@ -35,114 +36,146 @@ For each meme, the model predicts
 where $\hat{y}^{h}$ is the harmfulness prediction,
 $\hat{y}^{p}$ denotes target presence,
 $\hat{y}^{g}$ denotes target granularity,
-$\hat{y}^{i}$ is the primary communicative intent,
+$\hat{y}^{i}$ denotes primary communicative intent,
 $\hat{\mathbf{y}}^{r}$ is a multi-label prediction over rhetorical
 tactics, and $\hat{y}^{m}$ denotes the multimodal relation through
 which the image and text jointly convey meaning.
 
 Harmfulness, target presence, target granularity, primary intent,
-and multimodal relation are modeled as single-label classification
-tasks.
-Rhetorical tactic prediction is modeled as a multi-label task
-because a meme may simultaneously employ multiple strategies, such
-as sarcasm, stereotyping, dehumanization, or exaggeration.
-Task-specific labels denoting insufficient or ambiguous supervision
-are excluded using field-level masks, whereas a valid
-\texttt{none} category is retained when the corresponding
-phenomenon is absent.
+and multimodal relation are formulated as single-label
+classification tasks.
+Rhetorical tactic prediction is multi-label because a meme may
+simultaneously employ several strategies, such as sarcasm,
+stereotyping, dehumanization, or exaggeration.
+Labels marked as unknown, ambiguous, ignored, or otherwise invalid
+under the canonical annotation policy are excluded through
+field-level supervision masks rather than being interpreted as
+negative examples.
+A valid \texttt{none} label remains a legitimate class or
+multi-label state when the annotation schema explicitly defines the
+corresponding phenomenon as absent.
 
 \subsection{Evidence-Grounded Interpretation}
 \label{sec:problem:evidence}
 
-A structured label alone does not explain why a meme is considered
-harmful.
-We therefore require the framework to retain the evidence and
-knowledge used to produce its predictions.
+Structured predictions alone do not indicate which observations or
+contextual information support the interpretation.
+We therefore associate each prediction with an explicit evidence
+record.
+
 Let
 
 \begin{equation}
 \mathcal{E}^{\mathrm{int}}
 =
 \left\{
-e^{\mathrm{text}},
-e^{\mathrm{visual}},
-e^{\mathrm{cross}}
+\mathcal{E}^{\mathrm{global}},
+\mathcal{E}^{\mathrm{local}},
+\mathcal{E}^{\mathrm{text}},
+\mathcal{E}^{\mathrm{cross}}
 \right\}
 \label{eq:internal_evidence}
 \end{equation}
 
-denote internal evidence extracted directly from the meme.
-It may include relevant OCR spans, visual entities or regions, and
-cross-modal cues arising from the interaction between the image and
+denote evidence extracted directly from the meme.
+These components represent global visual information, localized
+objects or symbolic regions, OCR-derived textual evidence, and
+cross-modal cues arising from the interaction between image and
 text.
+They are considered \emph{internal} because they are derived from
+the observed meme rather than from an external knowledge source.
 
-The framework may additionally acquire a set of external contextual
-candidates,
+Some memes additionally require contextual information that is not
+explicitly present in the image or OCR text.
+The framework may therefore acquire a candidate knowledge set
 
 \begin{equation}
-\mathcal{C}^{\mathrm{ext}}
+\mathcal{K}^{\mathrm{cand}}
 =
 \left\{
-c_1,\ldots,c_K
+k_1,\ldots,k_K
 \right\},
+\label{eq:knowledge_candidates}
 \end{equation}
 
-from retrieval, context generation, or fallback mechanisms.
-These candidates are not assumed to be reliable evidence.
-A verifier evaluates their relevance, validity, and task-specific
-support, producing a verified subset
+through retrieval, context generation, or predefined fallback
+mechanisms.
+Candidate acquisition does not imply evidential validity:
+retrieved material may be only weakly relevant, while generated
+context may contain unsupported hypotheses.
+
+We therefore define a verification procedure
 
 \begin{equation}
-\mathcal{E}^{\mathrm{ver}}
+\mathcal{K}^{\mathrm{ver}}
 =
 \mathcal{V}
 \left(
 \mathcal{M},
 \mathcal{E}^{\mathrm{int}},
-\mathcal{C}^{\mathrm{ext}}
+\mathcal{K}^{\mathrm{cand}}
 \right)
 \subseteq
-\mathcal{C}^{\mathrm{ext}},
+\mathcal{K}^{\mathrm{cand}},
 \label{eq:verified_evidence}
 \end{equation}
 
-where $\mathcal{V}$ denotes the verification procedure.
-Retrieved candidates, generated hypotheses, fallback candidates,
-verified evidence, and rejected candidates remain explicitly
-distinguished through provenance metadata.
+where $\mathcal{V}$ evaluates candidate relevance, validity, and
+task-specific support.
+The candidate state is retained throughout this process:
+retrieved documents, generated hypotheses, fallback candidates,
+verified evidence, and rejected candidates remain distinguishable
+through provenance metadata.
 
-The final output therefore consists of both the structured
-prediction in Eq.~\eqref{eq:structured_output} and an explanatory
-record
+The final prediction is accompanied by an explanatory record
 
 \begin{equation}
 \hat{\mathcal{A}}
 =
 \left(
-\mathcal{E}^{\mathrm{int}},
-\mathcal{E}^{\mathrm{ver}},
+\hat{\mathcal{A}}^{\mathrm{int}},
+\hat{\mathcal{A}}^{\mathrm{ext}},
 \mathcal{P},
 \hat{R}
 \right),
 \label{eq:explanation_output}
 \end{equation}
 
-where $\mathcal{P}$ represents evidence and decision provenance and
-$\hat{R}$ is a concise rationale grounded in the selected evidence.
-The rationale is an explanatory output rather than a substitute for
-the task predictions, and it should not introduce claims unsupported
-by either the meme or the verified contextual evidence.
+where
 
-\subsection{Multi-Task Learning Objective}
+\begin{equation}
+\hat{\mathcal{A}}^{\mathrm{int}}
+\subseteq
+\mathcal{E}^{\mathrm{int}},
+\qquad
+\hat{\mathcal{A}}^{\mathrm{ext}}
+\subseteq
+\mathcal{K}^{\mathrm{ver}}
+\end{equation}
+
+are the internal and external evidence items selected for
+attribution, $\mathcal{P}$ denotes their provenance and processing
+history, and $\hat{R}$ is a concise rationale conditioned on the
+structured prediction and selected evidence.
+The rationale is an inspectable explanatory output rather than a
+replacement for the formal task predictions, and it should not
+introduce claims unsupported by either the observed meme or
+verified contextual evidence.
+
+\subsection{Masked Multi-Task Learning Objective}
 \label{sec:problem:objective}
 
 Let
-$\mathcal{Q}=\{h,p,g,i,r,m\}$ denote the set of prediction tasks.
-For sample $n$ and task $q$, let $m_n^q\in\{0,1\}$ be a supervision
-mask indicating whether a valid label is available.
-Let $w_n$ denote a sample weight derived from annotation-quality
-metadata, and let $\lambda_q$ denote the task weight.
-The overall learning objective is
+$\mathcal{Q}=\{h,p,g,i,r,m\}$ denote the six formal prediction
+tasks.
+For sample $n$ and task $q$, let
+$m_n^q\in\{0,1\}$ indicate whether valid supervision is available
+for that field.
+Let $w_n$ denote the sample weight determined by the normalized
+annotation-quality policy, and let $\lambda_q$ denote the weight
+assigned to task $q$.
+
+The masked multi-task objective is
 
 \begin{equation}
 \mathcal{L}(\theta)
@@ -161,19 +194,27 @@ y_n^q
 \label{eq:multitask_objective}
 \end{equation}
 
-where $f_\theta^q$ is the prediction function for task $q$.
+where $f_\theta^q$ denotes the trainable prediction function for
+task $q$.
 We use single-label classification losses for
-$q\in\{h,p,g,i,m\}$ and a multi-label binary classification loss for
-$q=r$.
-This masked objective permits the framework to learn from partially
-available structured supervision without treating missing or
-ignored labels as negative instances.
+$q\in\{h,p,g,i,m\}$ and a multi-label binary classification loss
+for $q=r$.
+The masks allow partially annotated samples to contribute to tasks
+for which valid supervision exists without converting missing,
+unknown, ambiguous, or ignored labels into negative examples.
+
+The objective supervises the formal structured outputs rather than
+the generated rationale.
+Evidence provenance, verifier metadata, gating states, and rationale
+text are retained for attribution and diagnostic analysis unless
+explicitly specified otherwise by an experimental condition.
 
 \subsection{Cross-Dataset Generalization}
 \label{sec:problem:generalization}
 
-We study a source-to-target generalization setting.
-The source collection
+We study source-to-target generalization under a locked
+development protocol.
+Let
 
 \begin{equation}
 \mathcal{D}_{S}
@@ -183,15 +224,19 @@ The source collection
 \mathcal{D}_{\mathrm{Politics}}
 \end{equation}
 
-combines the COVID-19 and U.S.\ politics domains of HarMeme while
-preserving their original domain identities.
-It is partitioned into a source training set
-$\mathcal{D}_{S}^{\mathrm{train}}$ and a source validation set
+denote the retained HarMeme source collection after the source-level
+integrity procedure described in
+Section~\ref{sec:setup:datasets}.
+The two domains preserve their original identities while sharing a
+common structured label space.
+The source collection is partitioned into an immutable training set
+$\mathcal{D}_{S}^{\mathrm{train}}$ and validation set
 $\mathcal{D}_{S}^{\mathrm{val}}$.
-The Facebook Hateful Memes collection forms a disjoint held-out
+The Facebook Hateful Memes benchmark forms a disjoint held-out
 target set $\mathcal{D}_{T}$.
 
-Model parameters are optimized only on the source training set:
+For a trainable model, parameters are optimized only using the
+source training partition:
 
 \begin{equation}
 \theta^{*}
@@ -205,12 +250,14 @@ Model parameters are optimized only on the source training set:
 \label{eq:source_training}
 \end{equation}
 
-All model-selection decisions, including early stopping,
-hyperparameter selection, and decoding thresholds, are made using
-$\mathcal{D}_{S}^{\mathrm{val}}$.
-Let $\tau^{*}$ denote the resulting decoding policy.
-Final performance is evaluated only after both $\theta^{*}$ and
-$\tau^{*}$ have been fixed:
+All development decisions are restricted to source data.
+These include early stopping, checkpoint and hyperparameter
+selection, calibration or decoding-threshold selection, prompt
+development, few-shot demonstration selection, retrieval-profile
+construction, and knowledge-source configuration.
+Let $\tau^{*}$ denote the resulting fixed decoding policy.
+Held-out prediction is performed only after the model and decoding
+configuration have been frozen:
 
 \begin{equation}
 \hat{\mathcal{Y}}_{T}
@@ -222,9 +269,11 @@ f_{\theta^{*},\tau^{*}}
 \label{eq:heldout_evaluation}
 \end{equation}
 
-No target-domain sample is used for training, validation, threshold
-selection, prompt construction, few-shot demonstration selection,
-or retrieval-index construction.
+No target-domain example is used to train or select the model,
+construct retrieval resources, develop prompts, determine decoding
+rules, or choose among experimental configurations.
+For retrieval-based conditions, the active knowledge index is
+restricted to permitted HarMeme training origins.
 This protocol evaluates whether harmfulness detection, structured
-interpretation, and evidence-grounded reasoning learned from
-HarMeme transfer to an unseen meme distribution.
+interpretation, and evidence-grounded reasoning learned from the
+source domains transfer to an unseen meme distribution.

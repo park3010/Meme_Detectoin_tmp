@@ -1,19 +1,25 @@
 \documentclass[sigconf,anonymous,review]{acmart}
 \setcopyright{none}
-\settopmatter{printacmref=false}
-\input{generated/result_macros}
+\settopmatter{printacmref=false,printfolios=true}
+\acmConference[WSDM '27]{ACM International Conference on Web Search and Data Mining}{2027}{}
+\acmBooktitle{ACM International Conference on Web Search and Data Mining (WSDM '27)}
+\usepackage{xurl}
 \begin{document}
 \title{Supplementary Material: Evidence-Grounded Harmful Meme Interpretation Across Domains}
 \author{Anonymous Authors}
+\keywords{harmful memes, multimodal reasoning, evidence attribution, cross-domain evaluation, reproducibility}
 \maketitle
 \input{supplement/dataset_details}
 \input{supplement/annotation_details}
+\input{supplement/retrieval_details}
 \input{supplement/implementation_details}
-\input{supplement/hyperparameters}
 \input{supplement/baseline_details}
 \input{supplement/prompts}
-\input{supplement/additional_results}
-\input{supplement/human_evaluation}
-\input{supplement/error_cases}
+\input{supplement/ablation_details}
+\input{supplement/evaluation_protocol}
 \input{supplement/reproducibility}
+\input{supplement/additional_results}
+\input{supplement/error_cases}
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{reference}
 \end{document}

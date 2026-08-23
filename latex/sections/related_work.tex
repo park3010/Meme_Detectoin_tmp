@@ -1,4 +1,75 @@
 % !TeX root = ../main.tex
 \section{Related Work}
-% TODO_CITATION: Verify authoritative BibTeX entries for all compared methods.
-\PaperDraftPlaceholder{Citation-backed synthesis pending author review.}
+\label{sec:related_work}
+
+\subsection{Harmful Meme Detection and Structured Understanding}
+\label{sec:related:detection}
+
+Harmful and hateful meme detection is inherently multimodal because the
+harmful meaning may emerge only from the interaction between an image and
+its accompanying text.
+The Hateful Memes benchmark~\cite{kiela2020hateful} helped establish this setting, and subsequent
+work has explored stronger multimodal fusion and pretrained
+vision--language representations.
+CLIP-based methods such as HateCLIPper~\cite{kumar2022hateclipper} and
+MemeCLIP~\cite{shah2024memeclip} model image--text
+interactions for meme classification, while MOMENTA combines global and
+local multimodal evidence and extends detection toward harmful-target
+identification~\cite{pramanick2021momenta}.
+Related approaches such as DISARM~\cite{sharma2022disarm} likewise emphasize identifying victims
+or targets rather than predicting harmfulness alone.
+
+Recent work increasingly moves beyond a single binary label.
+SAFE-MEME~\cite{nandi2024safememe} uses structured question--answer reasoning and hierarchical
+categorization, including questions about the target and type of hate.
+EXPLAINHM~\cite{lin2024explainhm} and
+EXPLAINHM++~\cite{lin2026explainhmpp} generate natural-language rationales through
+multimodal debate, and recent large-multimodal-model approaches such as
+RA-HMD~\cite{mei2025rahmd} and ExPO-HM~\cite{mei2026expohm} incorporate fine-grained supervision, reasoning, or
+explanation into harmful-meme modeling.
+These developments motivate richer outputs, but target prediction,
+fine-grained categorization, rationale generation, and evidence grounding
+are still often represented as method-specific objectives.
+Our formulation instead places harmfulness, target presence and
+granularity, primary intent, rhetorical tactics, and multimodal relation in
+one structured prediction space, while retaining a separate evidence record
+for audit.
+
+\subsection{Knowledge-Augmented Meme Reasoning}
+\label{sec:related:knowledge}
+
+Meme interpretation can depend on social, cultural, and event-specific
+knowledge that is absent from the pixels or OCR text.
+PromptHate introduces image-derived textual context into prompt-based
+classification, whereas retrieval-based methods explicitly introduce
+related examples or documents~\cite{cao2022prompthate}.
+RGCL~\cite{mei2024rgcl} uses retrieved meme relationships for contrastive representation
+learning and retrieval-based inference, and RA-HMD combines multimodal
+adaptation with retrieval-oriented representations for out-of-domain
+classification.
+EXPLAINHM++ retrieves related harmful and harmless memes to ground a second
+round of multimodal debate before producing its final decision and
+rationale.
+
+A closely related issue is robustness to noisy retrieval.
+MerFT~\cite{lee2026merft} studies distractor-aware multimodal meme
+reasoning and trains retrieval-augmented models to remain robust to
+semantically plausible but misleading documents.
+Its experiments explicitly vary distractor frequency, demonstrating that
+retrieval quality can materially affect meme reasoning.
+This reinforces the need to treat retrieved context as potentially noisy
+rather than inherently trustworthy.
+
+Our focus is complementary but different.
+Instead of relying only on retrieval-aware training to become robust to
+distractors, we place an explicit candidate-level verifier between
+knowledge acquisition and multimodal fusion.
+Each external candidate is evaluated against internal meme evidence for
+relevance, validity, and task-specific support before it can influence the
+structured prediction.
+The framework additionally retains both accepted and rejected provenance,
+allowing retrieval quality and verification behavior to be analyzed
+separately.
+Thus, the central distinction of our approach is not retrieval itself, but
+the explicit conversion of acquired context into \emph{verified evidence}
+before task-aware reasoning.

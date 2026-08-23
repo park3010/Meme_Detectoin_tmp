@@ -1,15 +1,104 @@
 % !TeX root = ../main.tex
 \section{Results}
-\begin{table*}[t]
-\caption{Held-out FHM harmfulness results. Missing or blocked experiments are never rendered as zero.}
-\label{tab:main-results}
-\centering
-\input{tables/generated/main_baseline}
-\end{table*}
+\label{sec:results}
+
+We evaluate all methods on the held-out FHM target set under the
+leakage-controlled protocol in Section~\ref{sec:setup:protocol}.
+Trainable models with a complete multi-seed result set are reported as
+mean~$\pm$~standard deviation, whereas deterministic vision--language
+baselines and canonical-seed ablations are reported as single runs.
+Structured results use schema-validated FHM silver annotations and are
+therefore interpreted separately from the original harmfulness labels.
+
+We organize the empirical study around five questions:
+\textbf{RQ1} whether the proposed framework improves cross-domain
+harmfulness detection;
+\textbf{RQ2} whether structured interpretations transfer from HarMeme to
+FHM;
+\textbf{RQ3} whether external knowledge is useful and whether verification
+adds value beyond retrieval alone;
+\textbf{RQ4} which acquired candidates are retained or rejected by the
+verifier; and
+\textbf{RQ5} where the framework still fails under domain shift.
+RQ1--RQ2 are addressed in this section, while RQ3--RQ5 are analyzed in
+Section~\ref{sec:analysis}.
+
+\subsection{Overall Cross-Domain Performance}
+\label{sec:results:harmfulness}
+
+Table~\ref{tab:main-results} compares harmfulness detection after
+development exclusively on the HarMeme source domains.
+The comparison includes unimodal and simple multimodal controls,
+specialized harmful-meme models, general-purpose vision--language
+baselines, and our evidence-grounded framework.
 
 \begin{table*}[t]
-\caption{Silver structured evaluation on eligible FHM agent-silver labels.}
-\label{tab:structured-results}
-\centering
-\input{tables/generated/main_structured}
+    \caption{
+    Held-out FHM harmfulness detection under the locked
+    HarMeme-to-FHM protocol.
+    Multi-seed trainable methods are reported as mean~$\pm$~standard
+    deviation; deterministic inference-only conditions are reported as
+    single runs.
+    }
+    \label{tab:main-results}
+    \centering
+    \renewcommand{\arraystretch}{1.18}
+    \input{tables/generated/main_baseline}
 \end{table*}
+
+Among the completed trainable comparisons, RA-HMD obtains the highest mean Macro-F1
+($0.648\pm0.005$) and the highest mean AUROC ($0.691\pm0.009$).
+All specialized-model values are our common-protocol reproductions using
+official-code adapters, not scores copied from the original papers.
+
+The deterministic Qwen2.5-VL conditions show a different metric profile.
+\textsc{Direct} obtains 0.444 Macro-F1 and 0.745 AUROC, while
+\textsc{Rationale} obtains 0.627 Macro-F1 and 0.734 AUROC.
+Thus, rationale prompting substantially raises hard-label Macro-F1 in this
+locked comparison, whereas both conditions exceed the completed trainable
+models in AUROC.  The \textsc{RAG} condition and the complete five-seed
+results for our framework are still pending, so we defer overall ranking and
+final interpretation until the comparison table is complete.
+
+\subsection{Structured Interpretation}
+\label{sec:results:structured}
+
+RQ2 asks whether the model transfers more than a binary harmfulness
+decision.
+We therefore evaluate target presence, target granularity, primary intent,
+rhetorical tactic, and multimodal relation on FHM samples with valid silver
+supervision.
+The five structured fields capture complementary aspects of meme
+interpretation: whether a target is present, the granularity of that target,
+the primary communicative intent, the rhetorical strategies expressed by the
+meme, and the semantic relation between image and text.
+Because these annotations are schema-validated silver labels rather than
+independently adjudicated gold annotations, we report each field separately
+and evaluate only samples marked valid for that field.
+This prevents missing or uncertain structured supervision from being treated
+as an incorrect prediction.
+
+\begin{table*}[t]
+    \caption{
+    Structured interpretation on schema-validated FHM silver annotations.
+    Metrics are computed only over samples with valid field-level
+    supervision; valid-sample counts and coverage are reported in the
+    supplementary material.
+    }
+    \label{tab:structured-results}
+    \centering
+    \input{tables/generated/main_structured}
+\end{table*}
+
+% TODO_RESULT:
+% After result freeze, summarize:
+% - which structured fields transfer most reliably;
+% - which fields are hardest under domain shift;
+% - whether the task-specific methods and VLM baselines show different
+%   strengths across fields;
+% - coverage caveats where relevant.
+%
+% Main table target schema:
+% Method | Target-P | Target-G | Intent | Tactic | MM-Rel
+% Use Macro-F1 in the main paper; move tactic Micro-F1, exact match, and
+% per-label results to the supplementary material.

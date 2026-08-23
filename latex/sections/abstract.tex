@@ -1,2 +1,21 @@
-% !TeX root = ../main.tex
-\PaperDraftPlaceholder{Abstract pending completion of audited HarMeme-to-FHM experiments.}
+Harmful memes often express abuse through subtle interactions between images
+and overlaid text, and their interpretation may depend on implicit social,
+cultural, and event-specific knowledge. Existing methods largely focus on
+binary detection, leaving targets, intents, rhetorical strategies, and
+supporting evidence implicit. We formulate harmful meme understanding as a
+structured interpretation task that jointly predicts harmfulness, target
+presence and granularity, primary intent, rhetorical tactics, and image--text
+relations. Our five-stage framework extracts global, local, textual, and
+cross-modal evidence; acquires external knowledge candidates; verifies their
+relevance, validity, and task-specific support; fuses internal evidence with
+verified knowledge through task-aware reasoning; and outputs structured
+predictions with evidence attribution and a concise rationale. A masked
+multi-task objective supports partially available labels, while provenance
+records distinguish retrieved documents, generated hypotheses, verified
+evidence, and rejected candidates. We train and validate on HarMeme and
+evaluate generalization on the held-out Facebook Hateful Memes benchmark under
+a leakage-controlled protocol. Beyond harmfulness detection, we separately
+assess target, intent, and tactic using schema-validated silver annotations
+with field-level coverage. This setup enables a unified evaluation of
+cross-domain detection, multi-dimensional interpretation, and auditable
+evidence-grounded reasoning.

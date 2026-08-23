@@ -1,0 +1,24 @@
+% !TeX root = ../supplementary.tex
+\section{Evaluation Metrics and Threshold Selection}
+\label{sec:supp:evaluation}
+
+Harmfulness Macro-F1 is the primary endpoint; AUROC using
+$P(\text{harmful})$ is complementary.  Accuracy, precision, and recall are
+retained as secondary diagnostics.  The four structured single-label fields
+use Macro-F1 on valid samples only, with unknown, ambiguous, and masked
+supervision handled as described in Section~\ref{sec:supp:annotations}.
+
+The rhetorical-tactic head emits trainable multi-label logits in the frozen
+canonical label order.  Formal decoding applies sigmoid followed by one global
+threshold selected by grid search on HarMeme validation Macro-F1, with
+Micro-F1, proximity to 0.5, and then the lower threshold used as deterministic
+tie breakers.  The selected threshold is frozen before FHM evaluation.  The
+main structured table reports logits-only Macro-F1; supplementary exports
+report logits-only Micro-F1, per-label F1, and exact match.  Rendered labels,
+cue lists, and heuristic legacy tactic scores are excluded from formal paper
+metrics.
+
+Complete trainable five-seed sets use the sample standard deviation
+($n-1$ denominator).  Deterministic Qwen conditions and canonical-seed
+ablations are single runs and are not displayed with a fictitious
+$\pm0.000$.  No incomplete seed set can enter a final paper export.

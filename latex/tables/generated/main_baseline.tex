@@ -1,7 +1,29 @@
-\begin{tabular}{lcc}
+\begin{tabular*}{0.88\textwidth}{@{\extracolsep{\fill}}lcc@{}}
 \toprule
-Method & Macro-F1 & ROC-AUC \\
+Method & Macro-F1 & AUROC \\
 \midrule
-Not run & -- & -- \\
+\multicolumn{3}{l}{\textit{Unimodal / simple multimodal}} \\
+Text-only DeBERTa      & $0.388 \pm 0.000$ & $0.000 \pm 0.000$ \\
+Image-only OpenCLIP    & $0.388 \pm 0.000$ & $0.499 \pm 0.012$ \\
+Image--Text Concat     & $0.388 \pm 0.000$ & $0.000 \pm 0.000$ \\
+OpenCLIP Classifier    & $0.396 \pm 0.018$ & $0.502 \pm 0.020$ \\
+\addlinespace
+\multicolumn{3}{l}{\textit{Specialized harmful-meme models}} \\
+HateCLIPper             & $0.600 \pm 0.004$ & $0.653 \pm 0.003$ \\
+MemeCLIP                 & $0.580 \pm 0.014$ & $0.643 \pm 0.009$ \\
+RGCL                     & $0.564 \pm 0.021$ & $0.609 \pm 0.012$ \\
+RA-HMD                   & $0.648 \pm 0.005$ & $0.691 \pm 0.009$ \\
+\addlinespace
+\multicolumn{3}{l}{\textit{General-purpose VLM}} \\
+Qwen2.5-VL Direct        & $0.444$ & $0.745$ \\
+Qwen2.5-VL Rationale     & $0.627$ & $0.734$ \\
+% Pending: Qwen2.5-VL RAG is still running. This row must not survive the
+% final result freeze with missing values.
+Qwen2.5-VL RAG           & -- & -- \\
+\addlinespace
+\multicolumn{3}{l}{\textit{Proposed}} \\
+% Pending: Ours requires the complete audited five-seed result set. This row
+% must not survive the final result freeze with missing values.
+Ours                     & -- & -- \\
 \bottomrule
-\end{tabular}
+\end{tabular*}

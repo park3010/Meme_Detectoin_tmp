@@ -1,288 +1,80 @@
 \section{Experimental Setup}
 \label{sec:setup}
 
-\subsection{Datasets and Cross-Dataset Protocol}
-\label{sec:setup:datasets}
+\subsection{Protocol and Compared Methods}
+\label{sec:setup:protocol}
 
-We evaluate all supervised methods under a source-to-target
-cross-dataset protocol.
-The source collection is the HarMeme family, which combines the
-COVID-19 and U.S.\ politics domains while retaining their original
-domain identities.
-The COVID-19 domain contains 3,544 memes and the politics domain
-contains 3,469 memes, resulting in 7,013 source samples.
-Following a source-only integrity audit, we exclude 72 redundant,
-raw-label-conflicting, or structured-label-conflicting records.  The effective
-supervised source pool therefore contains 6,941 samples.  Conflicting duplicate
-groups are excluded in full, decoded-image groups are assigned atomically to a
-split, and source-confirmed shared-image/different-text records are retained.
-The normalized Facebook Hateful Memes collection, hereafter
-\emph{FHM}, contains 9,000 samples and is used exclusively as a
-held-out target benchmark.
-Table~\ref{tab:dataset_protocol} summarizes the dataset roles.
+We study cross-domain generalization by training and validating
+trainable methods only on HarMeme~\cite{pramanick2021harmeme,pramanick2021momenta}
+and evaluating them on the 9,000-example Facebook Hateful Memes benchmark
+(FHM)~\cite{kiela2020hateful}.
+FHM is used exclusively as the held-out target set and is never used
+for model selection, threshold tuning, prompt development, or
+retrieval construction.
+Retrieval-based conditions use only knowledge resources constructed
+from the HarMeme training partition.
+Detailed preprocessing, duplicate/conflict handling, source splitting,
+annotation auditing, and leakage checks are provided in the
+supplementary material.
 
-\begin{table}[t]
-    \centering
-    \small
-    \caption{Dataset roles in the cross-dataset protocol.
-    FHM is excluded from every development decision and is used
-    only for final held-out evaluation.}
-    \label{tab:dataset_protocol}
-    \begin{tabular}{lllr}
-        \toprule
-        Dataset & Family & Role & Samples \\
-        \midrule
-        Harm-C   & HarMeme & Train/validation & 3,544 \\
-        Harm-P   & HarMeme & Train/validation & 3,469 \\
-        FHM      & FHM     & Held-out test    & 9,000 \\
-        \bottomrule
-    \end{tabular}
-\end{table}
+Harmfulness uses the original binary benchmark labels.
+For structured evaluation, we additionally assess target presence and
+granularity, primary intent, rhetorical tactic, and multimodal relation
+using schema-validated FHM silver annotations.
+Structured results are computed only over samples with valid
+field-level supervision, and their coverage is reported explicitly.
 
-We construct a single immutable, decoded-image-group-aware source split using
-5,552 records for training and 1,389 for validation (approximately 80\%/20\%).
-The split is stratified jointly by the original source domain
-(Harm-C or Harm-P) and the binary harmfulness label.
-The split seed is fixed to 42 and is independent of the model
-initialization seeds.
-Every model, baseline, ablation, and knowledge condition uses the
-same source split.
-The resulting sample assignments and their cryptographic hashes are
-stored in persistent split manifests.
+We compare against text-only, image-only, and simple multimodal
+controls; specialized harmful-meme methods including
+HateCLIPper~\cite{kumar2022hateclipper},
+MemeCLIP~\cite{shah2024memeclip}, RGCL~\cite{mei2024rgcl}, and
+RA-HMD~\cite{mei2025rahmd};
+and Qwen2.5-VL-7B~\cite{bai2025qwen25vl} under
+\textsc{Direct}, \textsc{Rationale}, and train-only \textsc{RAG}
+inference.
+The complete framework is further compared with four controlled
+ablations: \textsc{w/o Retrieval}, \textsc{w/o Support Verifier},
+\textsc{w/o Task-Aware Gate}, and
+\textsc{w/o Structured Auxiliary}.
+Full reproduction details for external baselines are provided in the
+supplementary material.
 
-FHM is not used for training, validation, early stopping,
-checkpoint selection, hyperparameter search, threshold selection,
-calibration, prompt development, few-shot demonstration selection,
-retrieval-index construction, or knowledge-source selection.
-For retrieval-based methods, the labeled meme index is constructed
-from the HarMeme training partition only.
-All model and decoding decisions are frozen before inference on
-FHM.
-Memotion is retained in the repository for future experiments but
-is disabled in the current protocol because its unified
-harmfulness labels require additional validation.
-
-% TODO_CITATION: Add the authoritative HarMeme and FHM citations
-% using the final BibTeX keys in reference.bib.
-
-\subsection{Annotation and Supervision}
-\label{sec:setup:annotations}
-
-For harmfulness detection, HarMeme and FHM use their original
-binary dataset labels as normalized harmful and non-harmful
-supervision.
-Structured target, intent, and tactic fields are obtained from the
-existing schema-validated normalized annotations.
-For source training, we use the \texttt{clean} normalized label
-set and retain only labels that satisfy the field-specific validity
-and confidence policy.
-
-The supervised structured fields are target presence, target
-granularity, primary intent, rhetorical tactic, and multimodal
-relation.
-Harmfulness, target presence, target granularity, primary intent,
-and multimodal relation are single-label tasks.
-Rhetorical tactic prediction is multi-label.
-For every field, labels marked as ignored, unknown, or otherwise
-invalid under the canonical vocabulary are excluded through an
-explicit supervision mask rather than being treated as negative
-instances.
-
-The FHM structured annotations are agent-generated,
-schema-validated silver annotations.
-Accordingly, we report FHM target, intent, and tactic results as
-\emph{silver structured evaluation} and do not describe these
-labels as human-adjudicated gold.
-For transparency, each structured metric is accompanied by the
-number and proportion of FHM samples with valid supervision.
-The original annotation payloads, normalized labels, audit flags,
-confidence metadata, and label provenance remain available in the
-saved prediction artifacts.
-
-\subsection{Compared Methods}
-\label{sec:setup:baselines}
-
-We organize compared methods into three groups.
-
-\paragraph{Unimodal and simple multimodal baselines.}
-The text-only baseline encodes the OCR text with
-DeBERTa-v3-base and trains a task classifier over the resulting
-representation.
-The image-only baseline uses the local pretrained OpenCLIP
-ViT-B/32 image encoder.
-The image--text concatenation baseline independently encodes the
-image and OCR text, concatenates the two representations, and
-applies a multilayer classifier.
-We additionally consider a supervised OpenCLIP classifier that
-jointly uses the image and text representations without the
-evidence extraction, knowledge verification, or task-aware
-reasoning components of our framework.
-
-\paragraph{Supervised multimodal methods.}
-Our experiment registry prioritizes representative harmful meme
-detectors based on CLIP interaction, retrieval-guided contrastive
-learning, target-aware modeling, and prompt-based implicit
-knowledge.
-These include HateCLIPper, RGCL, MOMENTA, and PromptHate.
-Reasoning- and explanation-oriented methods such as IntMeme,
-SAFE-MEME, and EXPLAINHM++ are included when an official
-implementation, compatible checkpoint, and reproducible adapter are
+% TODO_RESULT:
+% At final freeze, make this sentence exactly match completed audited runs.
+For the primary trainable comparison, we report results across model
+seeds $\{42,52,123,777,2026\}$ when the complete audited seed set is
 available.
-For external methods, we preserve the original architecture and
-training objective and modify only the dataset input, output
-serialization, and metric interfaces required by the common
-HarMeme-to-FHM protocol.
-Only completed runs that pass the common artifact and leakage audit
-are included in final reproduced-result tables.
-Literature-reported scores are stored separately from scores
-reproduced under our protocol.
+Core component ablations use the canonical seed 42.
+The Qwen2.5-VL conditions use one locked deterministic run rather than
+nominally repeating identical inference with multiple seeds.
 
-\paragraph{LMM, VLM, and agentic baselines.}
-We register direct, chain-of-thought, retrieval-augmented, and
-debate-style variants of general-purpose multimodal models.
-Their prompts, demonstrations, output schemas, and decoding
-policies are developed using HarMeme only.
-No FHM example is used as an in-context demonstration or for
-prompt selection.
-API- or checkpoint-dependent methods are reported only when the
-exact model version, inference configuration, and execution cost
-are fixed and recorded.
 
-\paragraph{Our model and ablations.}
-We compare the complete framework against four train-time
-ablations:
-without external retrieval,
-without task-specific support verification,
-without task-aware gating, and
-without structured auxiliary supervision.
-The same ablation condition is applied during training, validation,
-checkpoint selection, and FHM inference.
-The structured-auxiliary ablation removes the target-presence and
-multimodal-relation losses while retaining compatible output
-serialization.
-
-% TODO_CITATION: Insert citations for every external baseline that
-% remains in the final experiment set.
-% TODO_RESULT: Remove models that are not successfully reproduced.
-
-\subsection{Implementation and Model Selection}
-\label{sec:setup:implementation}
-
-Our implementation uses a locally stored pretrained OpenCLIP
-ViT-B/32 visual encoder and a locally stored
-DeBERTa-v3-base text encoder.
-All pretrained assets are verified before training, and their
-paths, loading states, and SHA-256 hashes are recorded in each run
-manifest.
-OCR text is loaded from the existing dataset resources and is not
-re-extracted during model training.
-
-For our framework, all valid structured tasks are optimized jointly
-using the masked multi-task objective described in
-Section~\ref{sec:problem:objective}.
-Single-label outputs use cross-entropy losses, whereas rhetorical
-tactic prediction uses a multi-label binary classification loss.
-The exact task weights, optimizer settings, learning rate, batch
-size, number of epochs, early-stopping patience, and hidden
-dimensions are fixed in the experiment configuration and reported
-in the supplementary material.
-
-The best checkpoint is selected using harmfulness Macro-F1 on the
-HarMeme validation partition.
-No FHM prediction is generated during checkpoint selection.
-For rhetorical tactic decoding, a global sigmoid threshold is
-selected on HarMeme validation predictions using non-\texttt{none}
-Macro-F1.
-Ties are resolved deterministically according to the predefined
-decoding contract.
-The selected threshold is then frozen and applied unchanged to
-FHM.
-No target-domain label is inspected while selecting the
-checkpoint or decoding threshold.
-
-We first conduct a one-seed pilot with model seed 42.
-The final multi-seed evaluation uses model seeds
-$\{42,52,123,777,2026\}$ while retaining the same source split.
-Experiments are executed on NVIDIA RTX 3090 GPUs.
-Each run records the resolved configuration, software environment,
-pretrained asset provenance, runtime, parameter counts, peak GPU
-memory, selected checkpoint, and decoding policy.
-
-% TODO_IMPLEMENTATION: Verify the exact final optimizer,
-% batch size, epoch count, and patience against the frozen
-% experiment configuration before submission.
-
-\subsection{Evaluation Metrics}
+\subsection{Implementation and Metrics}
 \label{sec:setup:metrics}
 
-For harmfulness detection, the primary metric is Macro-F1.
-We additionally report accuracy, precision, recall, and AUROC when
-a valid binary score and both classes are available.
+Our framework uses frozen OpenCLIP ViT-B/32 and DeBERTa-v3-base
+backbones~\cite{radford2021clip,cherti2023openclip,he2023debertav3}
+with trainable projection, reasoning, and structured
+prediction modules.
+All model and decoding decisions are selected using HarMeme
+validation only.
+For multi-label rhetorical tactics, the global sigmoid threshold is
+selected on the source validation set and then frozen for FHM.
 
-For target presence, target granularity, primary intent, and
-multimodal relation, we report Macro-F1 over valid, non-ignored
-samples.
-For rhetorical tactic prediction, we report logits-only
-multi-label Macro-F1 and Micro-F1.
-Per-label F1, exact-match ratio, and the separate behavior of the
-\texttt{none} fallback are reported in the supplementary material.
-Every structured result includes its valid sample count, coverage,
-unknown count, ambiguous count, and masked count.
+Macro-F1 is the primary harmfulness metric, with AUROC reported as a
+complementary ranking metric.
+Structured single-label fields are evaluated using Macro-F1 over valid
+silver annotations, while rhetorical tactics additionally use
+multi-label Micro-F1.
+Complete trainable seed sets are reported as mean~$\pm$~standard
+deviation; deterministic VLM conditions and canonical-seed ablations
+are reported as single runs.
 
-For core ablations, we report both predictive quality and
-complexity.
-The latter includes total and trainable parameters, training time,
-held-out inference latency, peak GPU memory, average retrieved
-candidate count, and average verified knowledge count.
-
-For multi-seed experiments, results are summarized as mean and
-standard deviation.
-Paired significance tests are performed only for runs sharing the
-same immutable source and target manifests and the same seed set.
-We do not report statistical significance from one-seed pilot
-experiments.
-
-% TODO_STATISTICS: Insert the final paired-test method and
-% multiple-comparison policy after the five-seed protocol is frozen.
-
-\subsection{Evidence, Rationale, and Verifier Assessment}
-\label{sec:setup:explanation_evaluation}
-
-We distinguish automatically measurable diagnostic properties from
-human judgments of explanation quality.
-Automatic diagnostics include the numbers of selected internal and
-external evidence items, candidate-origin distributions, accepted
-and rejected knowledge counts, evidence--rationale lexical overlap,
-rationale length, provenance completeness, and rule-based
-unsupported-claim indicators.
-These measures are treated as analysis proxies and not as direct
-proof of faithfulness.
-
-The evaluation pipeline additionally exports human-review packages
-for evidence relevance and sufficiency, rationale support and
-grounding, unsupported claims, and Stage C relevance, validity, and
-task-specific support.
-Human-evaluation results are included only after valid annotations
-have been imported and agreement checks have been completed.
-Until then, the corresponding registry entries remain explicitly
-marked as blocked by missing human annotation.
-
-\subsection{Reproducibility and Artifact Audit}
-\label{sec:setup:reproducibility}
-
-Every paper-targeted run produces a resolved configuration,
-environment snapshot, training log, runtime and complexity record,
-validation and FHM predictions, metric file, decoding-threshold
-record, and audit report.
-Run manifests include hashes of the source split, target manifest,
-label vocabulary, normalized annotation snapshot, configuration,
-source code, and pretrained assets.
-
-A strict audit verifies that the expected losses, prediction fields,
-structured logits, decoding artifacts, model checkpoints, and
-provenance records are present.
-It also verifies that FHM does not occur in source training,
-validation, threshold selection, few-shot demonstrations, or
-retrieval indexes.
-A run is considered complete for paper reporting only when all
-required artifacts are present and the strict audit passes.
+Our model and built-in controls are executed on RTX~3090 GPUs, whereas
+external reproduced models are executed on a separate RTX~5090
+comparison server.
+We therefore do not interpret cross-system wall-clock measurements as
+direct speed comparisons.
+Hyperparameters, hardware details, prompts, retrieval configuration,
+runtime statistics, and reproducibility manifests are reported in the
+supplementary material.

@@ -1,3 +1,48 @@
 % !TeX root = ../supplementary.tex
-\section{Reproducibility Checklist}
-\input{generated/experiment_status}
+\section{Reproducibility and Artifact Audit}
+\label{sec:supp:reproducibility}
+
+Every run records the requested command, resolved configuration, environment,
+source and evaluation manifests, predictions, thresholds, metrics, runtime,
+checkpoint checksums, and a pipeline audit.  Paper export additionally
+requires strict artifact and leakage audits, the complete registered seed set,
+matching protocol/manifests, a non-smoke suite, and a paper-eligible formal
+metric.  Smoke and pilot suites remain visible for QA but cannot populate
+paper tables or result macros.  Source-tree hashes are recorded per run;
+external adapters additionally bind the official repository commit and local
+patch provenance.  This per-run policy is necessary because pilot repairs can
+have distinct source hashes and must not be silently mixed into final
+multi-seed comparisons.
+
+\begin{table*}[t]
+  \caption{Frozen protocol identifiers and checksums.}
+  \label{tab:supp:hashes}
+  \centering
+  \small
+  \begin{tabular}{@{}p{0.28\textwidth}p{0.67\textwidth}@{}}
+    \toprule
+    Item & Locked value \\
+    \midrule
+    Protocol / registry & \texttt{harmeme\_to\_fhm\_v2} / \texttt{wsdm2027\_harmeme\_fhm\_v2} \\
+    Source split manifest SHA-256 & \nolinkurl{1995075ba474345702ee590bc9e291522c6ebaee5f941fc1e924a867fc64e6bf} \\
+    Duplicate-resolution SHA-256 & \nolinkurl{6f4082004c4aed013322b075173d5e6553c827a2c7d4b04a2aa9a8bb30dc4ef5} \\
+    FHM manifest SHA-256 & \nolinkurl{a8ad8bb386b8e739b9362e141af14bf9409589f6fd4480c07dadef0163aba197} \\
+    Retrieval manifest SHA-256 & \nolinkurl{c77ecbe8b757636bd4e3dc24743cfb4ec6d965083aabbc669e82a266e793962b} \\
+    Retrieval corpus SHA-256 & \nolinkurl{9af9166e0e08bfa8b60c84fbe9b6ac2609b8014bfc20ccff34a899c1389a87b6} \\
+    Sparse-index SHA-256 & \nolinkurl{7b32b6ec9298414cde81d1e989b78ab079fb81b780cfc317fe2644d41ebbf167} \\
+    Dense-index SHA-256 & \nolinkurl{ee097826fe2a55fac15661fc55a79bca856e70546651f2658bc7af8df961c09b} \\
+    Model seeds & 42, 52, 123, 777, 2026; ablations use 42 \\
+    Hardware classes & NVIDIA GeForce RTX 3090 (framework/built-ins); NVIDIA GeForce RTX 5090 (external adapters) \\
+    Code policy & Per-run source-tree SHA-256; official commit and patch hash for external adapters \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
+
+Storage preflight resolves the filesystem backing each output root and checks
+conservative checkpoint plus temporary-write headroom before training.
+Checkpoints are written to a temporary file in the destination directory,
+flushed and checked for nonzero size, then installed with an atomic rename.
+Run failure prevents completion status and retains a failure manifest when
+possible.  Runtime instrumentation uses synchronized monotonic phase timers
+and CUDA peak-memory counters; unavailable historical measurements remain
+null rather than estimated.

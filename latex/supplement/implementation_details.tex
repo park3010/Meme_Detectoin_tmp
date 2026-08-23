@@ -1,3 +1,32 @@
 % !TeX root = ../supplementary.tex
-\section{Architecture and Implementation Details}
-\PaperDraftPlaceholder{Full implementation details pending author review.}
+\section{Model and Training Details}
+\label{sec:supp:implementation}
+
+Stage A encodes global image content with a locally stored OpenCLIP
+ViT-B/32 checkpoint~\cite{radford2021clip,cherti2023openclip} and OCR text
+with a locally stored DeBERTa-v3-base model~\cite{he2023debertav3}.  The
+pretrained backbones are frozen, whereas their newly materialized projections,
+the cross-modal incongruity path, evidence aggregation, reasoning layers, and
+formal output heads are trainable.  Projection modules are materialized before
+optimizer construction.  Text is truncated to 64 tokens, at most three local
+regions are retained, and all task-facing states use width 256.
+
+Stage B forms at most six queries and retrieves at most eight external
+candidates.  Stage C scores relevance with a trainable MLP and combines it
+with fixed validity and task-support signals under the frozen verification
+policy.  Stage D uses four attention heads and two reasoning layers; its
+task-aware gate produces target-, intent-, and tactic-conditioned latents.
+Stage E exposes six formal trainable-logit heads.  Rationale and evidence
+renderings are serialized for audit but are not substituted for these logits
+in formal metrics.
+
+The canonical framework uses AdamW with learning rate $10^{-4}$ for five
+epochs and patience two, selecting checkpoints on HarMeme validation only.
+The implementation consumes one meme per optimization step.  Confidence-based
+sample weights are read from normalized supervision, and uncertain examples
+may be downweighted without changing their class label.  Model seeds are
+42, 52, 123, 777, and 2026 for complete trainable comparisons; canonical
+component analysis uses seed 42.  Pretrained weights and tokenizers are loaded
+locally.  The slow SentencePiece DeBERTa tokenizer is frozen under the
+documented compatibility-warning policy; no regex compatibility option is
+silently enabled.

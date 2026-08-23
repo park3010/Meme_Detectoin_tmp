@@ -1,3 +1,58 @@
 % !TeX root = ../supplementary.tex
-\section{External Baseline Configurations}
-\input{tables/generated/supp_external_baselines}
+\section{External Baseline Reproduction}
+\label{sec:supp:baselines}
+
+All external trainable methods use official code through common-protocol
+adapters rather than literature-reported scores.  These are not described as
+exact reproductions of the papers' original dataset settings: the adapters
+replace repository split loaders with the locked HarMeme-v2 train/validation
+manifests, exclude FHM from every training and selection operation, and emit
+the common $P(\text{harmful})$ artifact contract.
+
+\paragraph{HateCLIPper}
+The adapter uses official commit
+\nolinkurl{86ad7f15daa145c36c13a9e4eb45730a094de7af} and the published
+cross-modal CLIP architecture~\cite{kumar2022hateclipper}.  It preserves the
+BCE-with-logits objective, AdamW, gradient clipping, architecture, batch size
+16, learning rate $10^{-4}$, and 20-epoch budget.  A manual loop replaces the
+legacy Lightning API, while checkpoint selection uses HarMeme-validation
+AUROC.  Probabilities come from the official pre-output/output layers because
+the repository forward path serializes thresholded classes.
+
+\paragraph{MemeCLIP}
+The adapter uses official commit
+\nolinkurl{0cca3fd97b416a4473afe4cf79cd740e5dc9e54a}~\cite{shah2024memeclip}.
+Official CLIP features are cached once; the MemeCLIP architecture,
+cross-entropy objective, AdamW, batch size 16, learning rate $10^{-4}$, and
+10-epoch budget are retained.  The adapter corrects the repository validation
+loader so checkpoint selection uses HarMeme validation rather than test data.
+Formal $P(\text{harmful})$ is the harmful coordinate of the two-class softmax,
+not the legacy
+per-logit sigmoid proxy.
+
+\paragraph{RGCL}
+The adapter uses official commit
+\nolinkurl{5a09f04eabb88a73e0c29654c7d5759b6fcd9d7d}~\cite{mei2024rgcl}, batch
+size 64, learning rate $10^{-4}$, 30 epochs, and top-$20$ retrieval.  FHM is
+removed from the repository's per-epoch evaluation path; checkpoint selection
+uses HarMeme-validation classifier accuracy.  CPU FAISS \texttt{IndexFlatIP}
+replaces unavailable GPU FAISS after normalization, preserving exact
+inner-product retrieval.  The common score is the official arithmetic
+retrieval vote.
+
+\paragraph{RA-HMD}
+The two-stage adapter follows the official RGCL repository commit above and a
+LLaMA-Factory submodule at
+\nolinkurl{d576f04f310f197ce2fff9bfdeb4aa22f8d11609}~\cite{mei2025rahmd}.  Stage
+1 adapts Qwen2.5-VL-3B-Instruct revision
+\nolinkurl{66285546d2b821cf421d4f5eb2576359d3770cd3} with LoRA
+($r=128$, $\alpha=256$, dropout 0.05), learning rate $4\times10^{-5}$, three
+epochs, per-device batch one, gradient accumulation 16, and HarMeme-validation
+F1 checkpoint selection.  Stage 2 uses the official contrastive/hybrid
+procedure with learning rate $10^{-4}$, 30 epochs, batch size 64, top-$20$
+retrieval, and arithmetic voting.  SDPA replaces FlashAttention-2; feature
+extraction uses batch one and atomic 64-sample CPU shards after larger batches
+exceeded memory; and the intended $448\times448$ image cap is propagated to
+the image-message preprocessing.  CPU \texttt{IndexFlatIP} replaces GPU FAISS.
+These are documented memory/backend adaptations, not claims of an exact
+original-setting reproduction.

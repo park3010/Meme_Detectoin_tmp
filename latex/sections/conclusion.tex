@@ -1,3 +1,51 @@
-% !TeX root = ../main.tex
 \section{Conclusion}
-\PaperDraftPlaceholder{Conclusion pending completed audited experiments.}
+\label{sec:conclusion}
+
+We cast harmful meme understanding as a structured,
+evidence-grounded interpretation problem instead of only a binary
+classification task.
+The proposed framework jointly models harmfulness, target presence and
+granularity, primary communicative intent, rhetorical tactics, and
+multimodal relation while retaining an auditable record of the evidence
+available to the prediction.
+
+The framework decomposes this process into five stages:
+internal multimodal evidence extraction, external knowledge acquisition,
+knowledge verification, task-aware evidence fusion, and structured
+interpretation with evidence attribution.
+In particular, separating knowledge acquisition from verification prevents
+retrieved or generated contextual information from being treated
+automatically as trusted evidence, while provenance records preserve the
+distinction among acquired, verified, rejected, and selected information.
+
+We evaluate this formulation under a leakage-controlled cross-dataset
+protocol in which models are developed only on HarMeme and evaluated on the
+held-out Facebook Hateful Memes benchmark after model, retrieval, prompt,
+and decoding decisions have been frozen.
+Beyond the original harmfulness labels, schema-validated silver
+annotations enable separate analysis of target, intent, rhetorical tactics,
+and multimodal relation while making annotation coverage and provenance
+explicit.
+
+% TODO_RESULT:
+% Replace this paragraph after the final audited result freeze.
+% It should contain only 2--3 observations actually supported by the final
+% tables, for example:
+%
+% Across the held-out target set, [Ours/result statement].
+% The component analysis further shows that [retrieval/verifier/gate result].
+% Structured evaluation indicates that [most/least transferable field].
+%
+% Do not introduce SOTA, statistical significance, or efficiency claims
+% unless directly supported by the final audited experiments.
+
+Taken together, this work provides a modular basis for studying not only
+whether a meme is harmful, but also which structured interpretation the
+model produces and what evidence was permitted to influence that decision.
+The current results should nevertheless be interpreted in light of the
+silver structured annotations, dataset-specific cultural coverage, and the
+diagnostic rather than causal nature of the retained evidence and
+rationales.
+Future work can extend the protocol with independently adjudicated
+structured annotations, broader cultural and linguistic domains, and
+human-centered evaluation of evidence usefulness and rationale quality.

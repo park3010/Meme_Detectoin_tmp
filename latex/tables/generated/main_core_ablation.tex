@@ -1,7 +1,12 @@
-\begin{tabular}{lcc}
+\begin{tabular*}{0.98\textwidth}{@{\extracolsep{\fill}}lcccccc@{}}
 \toprule
-Method & Macro-F1 & ROC-AUC \\
+Variant & Harm. & Target-P & Target-G & Intent & Tactic & MM-Rel \\
 \midrule
-Not run & -- & -- \\
+% Pending rows must be resolved before the final result freeze.
+Ours Full                & -- & -- & -- & -- & -- & -- \\
+w/o Retrieval            & 0.473 & 0.228 & 0.099 & 0.057 & -- & 0.174 \\
+w/o Support Verifier     & -- & -- & -- & -- & -- & -- \\
+w/o Task-Aware Gate      & -- & -- & -- & -- & -- & -- \\
+w/o Structured Auxiliary & -- & -- & -- & -- & -- & -- \\
 \bottomrule
-\end{tabular}
+\end{tabular*}

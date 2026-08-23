@@ -1,147 +1,139 @@
-% !TeX root = ../main.tex
-
 \section{Ethical Considerations}
 \label{sec:ethics}
 
 \paragraph{Exposure to harmful content.}
-The datasets used in this study contain memes that may include
-hateful, discriminatory, misogynistic, offensive, politically
-sensitive, or otherwise disturbing content.
-Researchers who inspect raw memes, retrieved evidence, generated
-rationales, or error cases may therefore be exposed to potentially
-harmful material.
-We minimize unnecessary exposure by separating automated
-experiments from manual review, limiting qualitative inspection to
-samples required for validation or analysis, and avoiding the
-inclusion of gratuitous harmful examples in the paper.
-Any future human evaluation should provide annotators with an
-explicit content warning, allow them to pause or withdraw, and
-avoid requiring repeated exposure to particularly severe content.
+The datasets used in this study contain memes that may include hateful,
+discriminatory, misogynistic, offensive, politically sensitive, or otherwise
+disturbing material.
+Researchers who inspect raw memes, retrieved or generated knowledge
+candidates, rationales, or error cases may therefore be exposed to harmful
+content.
+We reduce unnecessary exposure by separating automated experiments from
+manual inspection, limiting qualitative review to samples needed for
+validation and analysis, and avoiding gratuitous reproduction of harmful
+examples in the paper.
+If human evaluation is conducted in future work, annotators should receive
+an explicit content warning, be allowed to pause or withdraw, and not be
+required to undergo repeated exposure to particularly severe material.
 
 \paragraph{Dataset provenance and privacy.}
-We use existing meme benchmarks according to their intended
-research purposes and retain their original sample identifiers,
-dataset families, and domain metadata.
-The source protocol combines the COVID-19 and U.S.\ politics
-domains of HarMeme for training and validation, while FHM is used
-only as a held-out target dataset.
-We do not use FHM samples for training, prompt development,
-threshold selection, retrieval-index construction, or any other
-model-selection decision.
+We use existing meme benchmarks for research on harmful-content
+understanding while preserving their original sample identifiers, dataset
+families, and domain metadata.
+HarMeme is used only as the source collection for training and validation,
+whereas FHM is reserved as a held-out target benchmark.
+As described in Section~\ref{sec:setup:protocol}, FHM does not participate
+in model training, prompt development, threshold selection,
+retrieval-resource construction, or other model-selection decisions.
 
-Memes may contain identifiable people, public figures, usernames,
-logos, or contextual references.
-Our task is content-level harmfulness interpretation rather than
-person identification.
-The framework does not attempt to infer private identity,
-demographic attributes, or sensitive personal information beyond
-what is explicitly required by the dataset annotation schema.
-Any public release of code or experiment manifests should avoid
-redistributing raw images unless permitted by the licenses and
-terms of the original datasets.
-
-% TODO_ETHICS: Verify the final redistribution and licensing policy
-% of every dataset before releasing code or artifacts.
+Memes may depict identifiable people or contain usernames, logos, public
+figures, and contextual references.
+Our task concerns interpretation of meme content rather than identification
+of individuals.
+The framework is not designed to infer private identity, unobserved
+demographic characteristics, or other sensitive personal information
+beyond the content-level categories explicitly defined by the task schema.
+Any public release of code, manifests, or derived artifacts should respect
+the distribution terms of the original datasets and should not redistribute
+raw images when such redistribution is not permitted.
 
 \paragraph{Annotation provenance and uncertainty.}
-The harmfulness labels used in this study originate from the
-respective source benchmarks.
-The target, intent, and tactic annotations are produced through the
-existing structured annotation pipeline and are preserved with
-their confidence, audit flags, masks, and provenance metadata.
-In particular, the current structured annotations for FHM are
+Original benchmark labels are retained for harmfulness.
+The finer-grained structured fields---target presence, target granularity,
+primary intent, rhetorical tactics, and multimodal relation---are stored
+together with annotation provenance, validity masks, confidence or audit
+metadata where available.
+In particular, the structured FHM annotations used in this work are
 agent-generated, schema-validated silver annotations rather than
 human-adjudicated gold labels.
-We therefore report the corresponding results as
-\emph{silver structured evaluation} and provide field-level
-coverage and valid-sample counts.
+We therefore report them explicitly as silver structured evaluation and
+provide field-level coverage and valid-sample counts.
 
-Automated annotation may reproduce the cultural assumptions,
-social biases, and systematic errors of the underlying models.
-Labels such as harmfulness, intent, and rhetorical tactic may also
-admit multiple reasonable interpretations.
-We retain explicit \texttt{ambiguous}, \texttt{unknown}, and
-masked states where defined by the annotation protocol, rather than
-forcing every sample into a confident category.
-Human-evaluation results are not reported unless independently
-collected annotations have been validated and imported through the
-designated evaluation procedure.
+Automated annotation can reproduce cultural assumptions and systematic
+errors of the models used to produce it.
+Moreover, categories such as communicative intent or rhetorical tactic may
+admit more than one reasonable interpretation in ambiguous cases.
+The annotation protocol therefore preserves unknown, ambiguous, or masked
+states instead of forcing every field into a confident class.
+We do not report these silver annotations as equivalent to independently
+adjudicated human judgments.
 
 \paragraph{External knowledge and contextual bias.}
-External contextual information can help interpret implicit
-references, but it may also be incomplete, outdated, culturally
-specific, or factually incorrect.
-Retrieved passages, generated hypotheses, and fallback candidates
-are therefore stored as distinct candidate types and are not
-treated as verified knowledge by default.
-The Stage C verifier filters candidates according to relevance,
-validity, and task-specific support; however, this procedure does
-not constitute a guarantee of factual correctness.
+Contextual information can help interpret implicit references but may also
+be incomplete, weakly relevant, culturally specific, or factually
+incorrect.
+For this reason, retrieved items, generated hypotheses, fallback
+candidates, verified knowledge, and rejected candidates remain
+distinguishable through provenance.
+The evidence-aware verifier evaluates relevance, validity-related cues, and
+task-specific support before candidates are used by downstream reasoning;
+this procedure does not guarantee factual correctness.
 
-Knowledge sources may disproportionately represent dominant
-languages, regions, institutions, or political perspectives.
-Consequently, a system that relies on external retrieval may
-perform unevenly across communities or cultural contexts.
-We retain source and candidate provenance to make such failures
-auditable and include cultural-context errors in the planned error
-analysis.
+The paper-eligible retrieval resource is restricted to the predefined
+HarMeme training-side corpus rather than live Web retrieval.
+Nevertheless, the source data and generated contextual hypotheses may still
+reflect dominant cultural, geographic, linguistic, or political
+perspectives.
+Such representational imbalance may lead to uneven performance across
+communities or contexts.
+We retain candidate provenance so that these failures can be inspected
+rather than treating the acquired context as universally authoritative.
 
-\paragraph{Rationale limitations.}
-Generated rationales are intended to make model decisions easier
-to inspect, not to provide authoritative factual explanations.
-A rationale may be fluent while still omitting relevant context,
-overstating weak evidence, or introducing an unsupported claim.
-For this reason, rationale text is not used as the formal source of
-target, intent, or tactic predictions.
-Formal structured metrics are computed from trainable model
-outputs, while rationale quality is evaluated separately through
-grounding, support, and unsupported-claim analyses.
+\paragraph{Rationale and evidence-attribution limitations.}
+Generated rationales are intended to make model outputs easier to inspect,
+not to serve as authoritative factual explanations.
+A fluent rationale may omit relevant context, overstate weak evidence, or
+introduce an unsupported claim.
+Accordingly, rationale text is not used as the formal source of
+harmfulness, target, intent, rhetorical-tactic, or multimodal-relation
+predictions.
+Structured metrics are computed from the corresponding prediction heads,
+while rationale properties are evaluated separately using the diagnostics
+described in Section~\ref{sec:analysis:evidence}.
 
-The evidence attribution and attention traces retained by the
-framework should also not be interpreted as causal explanations.
-They are diagnostic records that indicate which evidence was
-selected or emphasized by the implemented pipeline.
+Similarly, selected evidence, verifier records, and gating or attention
+signals should not be interpreted as causal explanations of the model's
+decision.
+They are diagnostic records showing which information was available,
+selected, filtered, or emphasized by the implemented pipeline.
 
 \paragraph{Risks of automated moderation.}
-False positives may incorrectly flag satire, criticism, political
-speech, or benign humor, whereas false negatives may allow harmful
-content to remain undetected.
-Errors may be especially consequential for marginalized groups,
-whose language and cultural references are often underrepresented
-in training data.
-Accordingly, the proposed framework should not be deployed as an
-autonomous moderation authority.
-Its predictions, evidence records, and rationales are better viewed
-as decision-support information for trained human moderators.
+False positives may incorrectly flag satire, criticism, political speech,
+or benign humor, whereas false negatives may allow harmful material to
+remain undetected.
+Such errors may disproportionately affect communities whose linguistic or
+cultural conventions are poorly represented in the source data.
+The proposed framework should therefore not be deployed as an autonomous
+moderation authority.
+Its predictions, evidence records, and rationales are more appropriately
+used as decision-support signals for trained human reviewers.
 
-The structured outputs should likewise not be used to assign intent
-or harmful attributes to individuals outside the context of the
-analyzed meme.
-Model confidence does not remove the need for human review,
-particularly in ambiguous, culturally dependent, or high-impact
+The structured outputs should also not be interpreted as judgments about a
+person's private beliefs or intentions outside the particular meme being
+analyzed.
+Model confidence does not eliminate the need for contextual and human
+review, especially in ambiguous, culturally dependent, or high-impact
 cases.
 
 \paragraph{Dual-use considerations.}
-The same analysis capabilities that support moderation research
-could be misused to identify weaknesses in content-moderation
-systems or to create memes designed to evade detection.
-To reduce this risk, released artifacts should prioritize model
-interfaces, evaluation protocols, and aggregated results rather than
-unnecessary reproduction of harmful material.
-We also avoid presenting retrieved or generated harmful content as
-endorsed factual information.
+The same capabilities used to analyze harmful memes could be misused to
+study weaknesses in moderation systems or to construct content intended to
+evade detection.
+To reduce unnecessary amplification of harmful material, released research
+artifacts should emphasize model interfaces, evaluation protocols,
+provenance-aware outputs, and aggregate measurements rather than
+unnecessary reproduction of harmful examples.
+Retrieved or generated harmful statements should likewise not be presented
+as endorsed factual information.
 
 \paragraph{Human evaluation and oversight.}
-The current automated pipeline can export annotation packages for
-evidence relevance, rationale quality, verifier decisions, and
-stage-level error analysis.
-It does not generate human gold judgments automatically.
-Any future human evaluation should use informed participation,
-clear annotation guidelines, appropriate compensation, secure data
-handling, and a process for resolving annotator disagreements.
-Institutional review or ethics approval requirements should be
-determined before such evaluation is conducted.
-
-% TODO_ETHICS: Add the final human-evaluation protocol, annotator
-% demographics at an aggregate level, compensation policy, and
-% institutional review status if human evaluation is performed.
+The current pipeline can export review packages for evidence relevance,
+rationale grounding, verifier decisions, and stage-level error analysis,
+but it does not itself provide human gold judgments.
+No human-evaluation result is included in the empirical claims unless
+independent annotations have been collected, validated, and checked for
+agreement before the final result freeze.
+Any future human study should use informed participation, clear annotation
+guidelines, appropriate compensation, secure data handling, procedures for
+resolving disagreement, and any institutional review required by the
+relevant organization.

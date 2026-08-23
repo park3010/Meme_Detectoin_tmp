@@ -1,0 +1,32 @@
+% !TeX root = ../supplementary.tex
+\section{Controlled Ablation Definitions}
+\label{sec:supp:ablations}
+
+All canonical component analyses use model seed 42 and apply the same
+ablation during source training, source validation, and held-out inference.
+Unless stated below, the source split, model dimensions, optimizer, learning
+rate, task weights, checkpoint rule, and decoding policy are unchanged.
+
+\begin{description}
+  \item[\textsc{w/o Retrieval}.]
+  Stage B retrieval and context generation return zero candidates; Stage C
+  therefore returns an empty verified bank and Stage D uses internal evidence
+  only.  All six formal logits losses remain active.
+
+  \item[\textsc{w/o Support Verifier}.]
+  Retrieval, learned relevance, and validity remain active.  Support columns
+  for target, intent, and tactic are neutralized to the insufficient state, the
+  support bonus is zero, and candidate scores reduce to relevance times
+  validity.  All six formal logits losses remain active.
+
+  \item[\textsc{w/o Task-Aware Gate}.]
+  The three task-routing gates are replaced by their shared mean scalar.  The
+  differentiable fused/shared reasoning path and task-specific latents remain;
+  only task-specific gate variation is removed.
+
+  \item[\textsc{w/o Structured Auxiliary}.]
+  Two auxiliary losses are excluded from the joint objective: target presence
+  and multimodal relation.  Harmfulness, target-granularity, primary-intent, and
+  rhetorical-tactic logits losses remain active, and output serialization is
+  unchanged.
+\end{description}

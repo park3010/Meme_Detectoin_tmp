@@ -1,3 +1,26 @@
 % !TeX root = ../supplementary.tex
-\section{Prompt Templates}
-\PaperDraftPlaceholder{Prompting methods are registered but blocked until approved assets or API access exist.}
+\section{Qwen2.5-VL Prompt and Decoding Protocol}
+\label{sec:supp:qwen}
+
+The three locked conditions use Qwen2.5-VL-7B-Instruct~\cite{bai2025qwen25vl}
+at revision \nolinkurl{cc594898137f460bfe9f0759e9844b3ce807cfb5}, bfloat16,
+SDPA, no quantization, and a slow processor with 200,704--1,003,520 allowed
+image pixels.  Prompt templates, the label vocabulary, processor policy, and
+decoding policy are content-hashed before target inference.  Prompt
+development and parse checks use HarMeme only; the prompt-lock records report
+zero FHM label reads and zero FHM model forwards before locking.
+
+\textsc{Direct} requests the structured JSON prediction without a rationale.
+\textsc{Rationale} requests the same structured output plus a concise,
+evidence-grounded justification; we do not expose or evaluate hidden
+chain-of-thought.  \textsc{RAG} additionally supplies evidence retrieved from
+the frozen HarMeme-train-only resource.  Its result remains pending and no
+value is included here.
+
+Decoding is deterministic (sampling disabled, one beam, temperature unset,
+and at most 384 new tokens).  One deterministic repair request is permitted
+only after JSON parsing, required-field, type, or canonical-vocabulary
+failure; it instructs the model to repair the schema without adding claims.
+The formal binary decision is candidate-likelihood argmax over
+\texttt{non\_harmful} and \texttt{harmful}, normalized by a two-candidate
+softmax.  Self-reported confidence is not used as a score.

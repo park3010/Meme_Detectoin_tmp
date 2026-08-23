@@ -1,0 +1,22 @@
+% !TeX root = ../supplementary.tex
+\section{Retrieval Resource and Leakage Control}
+\label{sec:supp:retrieval}
+
+The paper-eligible retrieval profile is
+\texttt{harmeme\_train\_v2}.  It was built offline by replaying auditable
+local query caches for the v2 HarMeme training partition.  All 5,552 training
+samples occur as query origins (100\% coverage), producing a frozen corpus of
+4,784 unique documents.  Query identifiers hash the dataset name, sample ID,
+and exact cached query.  The corpus manifest reports zero origins from FHM,
+HarMeme validation, Memotion, or unknown sources, and records that network
+access was not used during construction.
+
+Hybrid lookup combines a sparse BM25/token-statistics index with a
+deterministic 256-dimensional hashed-vector index.  The latter is a fixed
+lexical hashing representation, \emph{not} a pretrained semantic embedding
+model.  Its purpose is reproducible dense-vector lookup over the frozen
+corpus.  Corpus, document-provenance, sparse-index, and dense-index checksums
+are bound to the v2 source-split manifest.  Paper preflight rejects a
+retrieval profile whose source split hash differs from the active protocol.
+Offline corpus and index construction are reported separately from online
+retrieval and inference costs.

@@ -1,3 +1,55 @@
 % !TeX root = ../supplementary.tex
-\section{Dataset and Annotation Details}
-\input{tables/generated/supp_per_dataset}
+\section{Dataset Preparation and Split Integrity}
+\label{sec:supp:data}
+
+The frozen protocol is \texttt{harmeme\_to\_fhm\_v2}.  HarMeme combines the
+COVID-19 Harm-C collection~\cite{pramanick2021harmeme} and its U.S.-politics
+Harm-P extension~\cite{pramanick2021momenta}.  The source manifest contains
+7,013 raw records.  A source-only integrity audit excludes 72 redundant or
+conflicting records and retains 6,941 records for supervised development.
+The immutable group-aware split then assigns 5,552 records to training and
+1,389 to validation.  Split seed 42 is the fixed \emph{data-split seed}; it
+is independent of the five model-initialization seeds used for multi-seed
+experiments.
+
+\begin{table}[h]
+  \caption{Audited dataset counts in the active v2 protocol.}
+  \label{tab:supp:dataset-counts}
+  \centering
+  \begin{tabular}{@{}lr@{}}
+    \toprule
+    Partition or status & Records \\
+    \midrule
+    HarMeme raw & 7,013 \\
+    Excluded by duplicate/conflict policy & 72 \\
+    HarMeme retained & 6,941 \\
+    \quad train & 5,552 \\
+    \quad validation & 1,389 \\
+    \quad Harm-C / Harm-P & 3,484 / 3,457 \\
+    \quad harmful / non-harmful & 2,961 / 3,980 \\
+    FHM held-out test & 9,000 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Duplicate resolution operates on canonical \nolinkurl{dataset::sample_id}
+keys and decoded RGB-pixel hashes.  Every decoded-image group is an
+indivisible split unit.  Both members of a raw-source harmfulness conflict
+are excluded; members of a valid structured-label conflict are likewise
+excluded.  For exact same-label or format-only duplicates, one
+lexicographically selected canonical record is retained.  Source-confirmed
+records that share an image but carry different OCR text are retained as
+distinct multimodal samples, but the complete image group is assigned to one
+partition.  Consequently, both decoded-image and exact image--OCR overlap
+between source train and validation are zero.  Raw images and annotations
+remain unchanged; resolution is expressed only through versioned manifests.
+
+The Facebook Hateful Memes benchmark (FHM)~\cite{kiela2020hateful} is an
+immutable 9,000-record target test set.  It is excluded from training,
+validation, checkpoint selection, threshold selection, calibration,
+hyperparameter search, prompt development, few-shot examples, retrieval
+construction, and knowledge-source selection.  Memotion is disabled by the
+active protocol.  Dataset manifests are addressed by content and manifest
+hashes (Table~\ref{tab:supp:hashes}), and strict preflight rejects a paper run
+that selects a legacy split, mixes protocol versions, or activates a
+forbidden dataset.

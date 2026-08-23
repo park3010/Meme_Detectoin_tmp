@@ -1,4 +1,74 @@
 % !TeX root = ../main.tex
 \section{Introduction}
-% TODO_RESULT: Insert the five-seed FHM baseline comparison.
-\PaperDraftPlaceholder{Narrative pending audited results and author review.}
+\label{sec:introduction}
+
+Memes combine images and short text to convey meaning through cultural
+references, visual symbolism, sarcasm, and other forms of multimodal
+composition.  The same properties make harmful memes difficult to detect:
+an image or sentence may appear benign in isolation while their combination
+targets a person or group, expresses an abusive intent, or invokes a
+harmful rhetorical strategy.  Effective moderation therefore requires more
+than recognizing unimodal surface cues.
+
+Prior work has addressed binary harmful or hateful meme detection with
+multimodal representations, cross-modal interaction, and
+contrastive learning~\cite{kiela2020hateful,kumar2022hateclipper,shah2024memeclip,mei2024rgcl}.
+More recent methods have begun to predict targets or attack types and to
+generate natural-language rationales~\cite{pramanick2021harmeme,sharma2022disarm,lin2024explainhm}.
+These advances
+move toward richer meme understanding, but fine-grained prediction,
+evidence grounding, and rationale generation are still often treated as
+separate or method-specific outputs.  We instead formulate harmful meme
+understanding as a structured interpretation task that jointly predicts
+harmfulness, target presence and granularity, primary intent, rhetorical
+tactics, and multimodal relation.
+
+A second challenge is that the meaning of a meme may depend on social,
+cultural, or event-specific context that is not directly observable in its
+pixels or OCR text.  Retrieval and multimodal language models can provide
+such context, but acquired information is not automatically reliable
+evidence.  Retrieved examples may be only superficially similar, generated
+hypotheses may be unsupported, and context relevant to identifying a target
+may not support the same conclusion about intent or rhetorical strategy.
+This motivates our central design question: \emph{how should external
+knowledge be checked against the meme before it is allowed to influence a
+structured prediction?}
+
+We propose an evidence-grounded framework that explicitly separates
+knowledge acquisition from evidence verification.  Internal evidence is
+extracted from global and local visual content, OCR text, and image--text
+interaction, while external candidates are acquired when additional context
+is useful.  Before fusion, an evidence-aware verifier evaluates each
+candidate against the internal meme evidence for relevance, validity, and
+task-specific support.  Only verified knowledge enters task-aware
+reasoning; accepted and rejected candidates retain their provenance for
+analysis.  The final model outputs the structured predictions together with
+selected evidence and a concise rationale.
+
+We evaluate cross-domain generalization by developing models exclusively on
+HarMeme~\cite{pramanick2021harmeme,pramanick2021momenta} and testing them on
+the held-out Facebook Hateful Memes benchmark
+(FHM)~\cite{kiela2020hateful}.  No FHM example is used for model selection, prompt development, or
+retrieval construction.  Beyond harmfulness, schema-validated silver
+annotations enable evaluation of target, intent, rhetorical tactics, and
+multimodal relation under the same domain shift.
+
+Our contributions are threefold:
+\begin{itemize}
+    \item
+    We formulate harmful meme understanding as structured prediction over
+    harmfulness, target presence and granularity, primary intent,
+    rhetorical tactics, and multimodal relation.
+
+    \item
+    We introduce an evidence-aware verification stage that evaluates
+    externally acquired candidates against internal meme evidence for
+    relevance, validity, and task-specific support before they can
+    influence downstream multimodal reasoning.
+
+    \item
+    We conduct a cross-domain evaluation from HarMeme to FHM with
+    specialized harmful-meme models and general-purpose vision--language
+    baselines, and analyze structured transfer, component contributions,
+    and external-knowledge filtering behavior.
+\end{itemize}

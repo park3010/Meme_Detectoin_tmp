@@ -1,3 +1,46 @@
 % !TeX root = ../supplementary.tex
-\section{Annotation Details}
-\input{tables/generated/supp_coverage}
+\section{Structured Silver Annotation Protocol}
+\label{sec:supp:annotations}
+
+Harmfulness is always evaluated against the original binary dataset label.
+The other five formal fields are \emph{schema-validated silver annotations},
+not independently adjudicated gold labels.  Their provenance is recorded as
+agent-generated structured evaluation.  Each record is normalized to the
+frozen vocabulary, checked for required types and allowed values, and stored
+with source-annotation metadata, confidence or uncertainty information,
+evidence text, and audit flags where available.  The original annotation and
+the normalized record remain separately traceable.
+
+The five fields represent (i) explicit, implicit, or absent target presence;
+(ii) target granularity at the individual, organization, community, society,
+or no-target level; (iii) primary communicative intent; (iv) a set of
+rhetorical tactics; and (v) the semantic relation between image and text.
+Target presence, target granularity, intent, and multimodal relation are
+single-label tasks.  Rhetorical tactic is multi-label and compares canonical
+normalized label sets.
+
+Unknown values are ignored rather than scored as errors.  Ambiguous values
+are also ignored for the fields whose vocabulary marks ambiguity as
+non-evaluable.  A missing normalized annotation or a zero field mask removes
+that sample only from the affected task.  Losses and metrics apply the mask
+before reduction, so absent or uncertain supervision does not become a
+negative label.  The active FHM manifest uses one validated clean-eligibility
+set for all five formal structured fields: 6,169 of 9,000 records (68.54\%).
+
+\begin{table}[h]
+  \caption{Held-out structured-evaluation coverage.}
+  \label{tab:supp:coverage}
+  \centering
+  \begin{tabular}{@{}lrr@{}}
+    \toprule
+    Formal field(s) & Valid $N$ & Coverage \\
+    \midrule
+    Target-P, Target-G, Intent, Tactic, MM-Rel & 6,169 & 68.54\% \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The single shared count above follows the current held-out manifest and the
+6,169-row normalized-clean artifact.  Future annotation revisions must
+report per-field counts if their validity masks diverge; they cannot inherit
+this count by assumption.

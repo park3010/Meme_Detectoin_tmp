@@ -1,10 +1,149 @@
 % !TeX root = ../main.tex
 \section{Analysis}
-\begin{table}[t]
-\caption{Core train-time ablations under the locked protocol.}
-\label{tab:ablations}
-\centering
-\input{tables/generated/main_core_ablation}
-\end{table}
-% TODO_RESULT: Summarize verifier ablation results.
-\PaperDraftPlaceholder{Interpretation pending completed audited comparisons.}
+\label{sec:analysis}
+
+\subsection{Does External Knowledge Need Verification?}
+\label{sec:analysis:verification}
+
+RQ3 examines two related questions: whether external knowledge helps under
+cross-domain transfer and whether retrieved context should be verified
+before it influences the prediction.
+We therefore compare the complete model with four controlled train-time
+ablations under the same source split, target manifest, and canonical model
+seed.
+
+\begin{table*}[t]
+    \caption{
+    Controlled component ablations on held-out FHM.
+    All variants use the canonical seed 42 and are interpreted as diagnostic
+    comparisons rather than multi-seed significance estimates.
+    }
+    \label{tab:ablations}
+    \centering
+    \renewcommand{\arraystretch}{1.18}
+    \input{tables/generated/main_core_ablation}
+\end{table*}
+
+The most direct comparison is among the full model,
+\textsc{w/o Retrieval}, and \textsc{w/o Support Verifier}.
+The first comparison tests whether external context contributes beyond the
+internal meme evidence.
+The second tests whether simply acquiring external context is sufficient,
+or whether task-specific verification provides additional value before
+fusion.
+The remaining ablations probe whether task-aware routing and structured
+auxiliary supervision contribute beyond the external-knowledge pathway.
+
+% TODO_RESULT:
+% Interpret Full vs w/o Retrieval vs w/o Support Verifier first.
+%
+% Case A:
+%   Full > w/o Support Verifier > w/o Retrieval
+%   -> external context helps, and verification provides additional benefit.
+%
+% Case B:
+%   Full > w/o Retrieval > w/o Support Verifier
+%   -> unverified context is sufficiently noisy that using it can be worse
+%      than relying on internal evidence alone.
+%
+% Do not infer multi-seed significance from these canonical-seed ablations.
+%
+% Final main ablation table target:
+% Variant | Harm. | Target-P | Target-G | Intent | Tactic | MM-Rel
+% Use Macro-F1 for the six columns; move AUROC and secondary metrics to
+% supplementary material.
+
+\subsection{What Does the Verifier Filter?}
+\label{sec:analysis:verifier_flow}
+
+RQ4 asks whether Stage~C changes the acquired candidate pool in a meaningful
+way rather than acting as a nominal intermediate module.
+We analyze the evidence flow from acquisition to verification using the
+serialized provenance records.
+For each meme, we measure the number of acquired candidates, the number
+retained as verified knowledge, the number rejected, and the resulting
+acceptance rate.
+Where available, we additionally inspect the distribution of candidate
+origins and task-specific support states.
+
+These statistics complement the predictive ablation above.
+The ablation measures whether verification changes downstream performance,
+whereas the candidate-flow analysis characterizes \emph{how} the verifier
+changes the information available to the reasoning stage.
+Because verifier acceptance is only a model-side screening decision, we do
+not interpret it as proof that an accepted candidate is factually correct.
+
+For each meme, we summarize verifier behavior using four primary quantities:
+the number of acquired candidates, the number retained as verified evidence,
+the number rejected, and the acceptance rate, defined as the fraction of
+acquired candidates retained after verification.
+We additionally stratify these statistics by candidate origin and, when
+available, by task-specific support for target, intent, and rhetorical-tactic
+prediction.
+All statistics are computed post hoc from the serialized provenance records;
+the retrieval corpus, candidate generation procedure, and verification policy
+are not modified for this analysis.
+
+% TODO_RESULT:
+% Add a compact table or figure only after the audited post-hoc export is
+% available. Preferred main-paper statistics:
+%
+%   acquired candidates / meme
+%   verified candidates / meme
+%   rejected candidates / meme
+%   acceptance rate
+%
+% Optional if space permits:
+%   target-support rate
+%   intent-support rate
+%   tactic-support rate
+%   candidate-origin distribution
+%
+% Detailed provenance, score distributions, and per-source diagnostics go to
+% supplementary material.
+
+\subsection{Structured Effects and Failure Modes}
+\label{sec:analysis:structured_errors}
+\label{sec:analysis:evidence}
+
+RQ2 and RQ5 concern how the framework behaves beyond binary harmfulness and
+where it still fails under domain shift.
+We jointly examine the per-task structured results from
+Table~\ref{tab:structured-results}, the
+\textsc{w/o Task-Aware Gate} and
+\textsc{w/o Structured Auxiliary} ablations, and the held-out error cases.
+This analysis tests whether components designed for heterogeneous evidence
+requirements affect particular structured fields rather than only the
+aggregate harmfulness decision.
+
+We also inspect serialized evidence and rationale diagnostics, including
+selected-evidence provenance, evidence--rationale overlap, provenance
+completeness, and rule-based unsupported-claim indicators.
+These quantities are used only as diagnostic properties and are not treated
+as direct measurements of causal faithfulness.
+
+Held-out errors are grouped by observable failure mode, including
+insufficient contextual knowledge, target confusion, cultural or
+event-specific ambiguity, image--text incongruity, rhetorical-tactic
+confusion, and irrelevant or insufficiently discriminative retrieved
+context.
+Representative qualitative examples are included only when they add
+information beyond the quantitative error summary; otherwise they are moved
+to the supplementary material.
+
+For descriptive error analysis, each inspected case is assigned to the most
+directly observable failure category using the model prediction, the
+corresponding silver structured annotation, and the serialized evidence
+record.
+These categories are used to organize recurring failure patterns rather than
+as an additional source of ground-truth supervision, and a case is not used
+to revise the model, retrieval configuration, or decoding policy.
+
+% TODO_RESULT:
+% After result freeze:
+% 1. identify structured fields most affected by w/o Task-Aware Gate;
+% 2. identify whether structured auxiliary supervision helps the intended
+%    fields;
+% 3. report the dominant error categories;
+% 4. retain only one concise rationale/evidence observation in the main paper
+%    unless it materially strengthens the verifier analysis.
